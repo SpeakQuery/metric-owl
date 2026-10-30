@@ -1,0 +1,15 @@
+Metric Owl Free Edition — Official Preview Binaries
+Copyright (c) 2026 Metric Owl. All rights reserved.
+
+Permission is granted to download, install and run the official, unmodified
+Metric Owl Free Edition preview binaries for personal or commercial server
+monitoring without an application license fee.
+
+This permission applies to the official binaries, not to redistribution,
+sublicensing, sale or relicensing of the source code. Other copyright rights
+are reserved. Third-party components retain their respective licenses, which
+are supplied in the release's third-party notices.
+
+The preview is provided as-is, without a support or availability commitment.
+Optional AI providers and external notification services may have their own
+accounts, terms and charges; these are not included in this binary permission.

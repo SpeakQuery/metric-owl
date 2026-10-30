@@ -1,0 +1,27 @@
+[Unit]
+Description=Metric Owl read-only monitoring
+After=network.target
+[Service]
+Type=simple
+User=server-guard
+Group=server-guard
+StateDirectory=server-guard
+StateDirectoryMode=0700
+ExecStart=/usr/local/bin/server-guard --data-dir /var/lib/server-guard serve
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+UMask=0077
+# App avoids unbounded file logging. Diagnostics appear in systemd's bounded journal.
+StandardOutput=null
+StandardError=journal
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,36 @@
+[Unit]
+Description=Metric Owl notification relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=metric-owl-relay
+Group=metric-owl-relay
+StateDirectory=metric-owl-relay
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/metric-owl-relay
+EnvironmentFile=/etc/metric-owl/relay.env
+LoadCredential=smtp-password:/etc/metric-owl/relay-smtp-password
+Environment=SMTP_PASSWORD_FILE=%d/smtp-password
+ExecStart=/usr/local/bin/guard-relay --data-dir /var/lib/metric-owl-relay serve --port 4878
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+MemoryMax=128M
+CPUQuota=20%
+
+[Install]
+WantedBy=multi-user.target

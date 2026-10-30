@@ -1,0 +1,1 @@
+import{describe,it,expect}from'vitest';import{bytes,percent,duration}from'./lib';describe('measurement formatting',()=>{it('does not present missing data as zero',()=>{expect(percent(null)).toBe('—');expect(bytes(undefined)).toBe('—')});it('formats bytes with binary units',()=>{expect(bytes(1073741824)).toBe('1.0 GiB');expect(duration(90000)).toBe('1 d 1 h')})});

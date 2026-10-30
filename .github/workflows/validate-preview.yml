@@ -1,0 +1,60 @@
+name: Validate private preview
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: metric-owl-private-preview-validation
+  cancel-in-progress: true
+jobs:
+  ubuntu-preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+      - name: Source boundary audit
+        run: python3 scripts/audit-release-source.py --staged
+      - name: Install pinned build tools and dependencies
+        run: |
+          npm install --global pnpm@10.32.1
+          rustup show
+          pnpm --dir web install --frozen-lockfile
+      - name: Build embedded frontend assets
+        run: pnpm --dir web build
+      - name: Rust and shared contract validation
+        run: |
+          cargo fmt --all --check
+          cargo test --workspace --locked
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          git diff --exit-code -- web/src/generated
+      - name: Frontend unit and production build
+        run: |
+          pnpm --dir web test
+          pnpm --dir web build
+      - name: Application integration
+        run: |
+          cargo build --workspace --locked
+          python3 scripts/integration-test.py
+          python3 scripts/test-monitoring-features.py
+      - name: Browser acceptance
+        run: |
+          pnpm --dir web exec playwright install --with-deps chromium
+          pnpm --dir web e2e
+      - name: Package private preview
+        run: |
+          cargo build --release --workspace --locked
+          mkdir -p artifacts/release
+          cp target/release/server-guard artifacts/release/server-guard
+          python3 scripts/collect-licenses.py
+          METRIC_OWL_SOURCE_COMMIT="$GITHUB_SHA" bash scripts/package-linux-release.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: metric-owl-ubuntu24.04-amd64-private-preview
+          path: artifacts/releases/v0.1.0-preview.1/linux-amd64/*
+          retention-days: 3
+          if-no-files-found: error
