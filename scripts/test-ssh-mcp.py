@@ -185,6 +185,11 @@ try:
     assert len(sse_ages) >= a.phase_seconds - 5, 'SSE did not produce continuous live samples'
     monitored['sse_samples'] = len(sse_ages)
     monitored['sse_sample_age_seconds_max'] = round(max(sse_ages), 3)
+    current = tool('current_metrics', {}, 1000)
+    diagnostics = [{ 'source': item['source'], 'metric': item['metric'], 'label': item['label'],
+        'quality': item['reading']['quality'], 'value': item['reading']['value'],
+        'unit': item['reading']['unit'], 'reason': item['reading'].get('reason') }
+        for item in current.get('diagnostics', [])]
     now = time.time()
     history = tool('history', {'source':'host','metric':'cpu','from':now-86400,'to':now}, 4)
     assert inventory['cores'] > 0 and current['memory_total'] > 0
@@ -203,6 +208,7 @@ try:
         'dashboard_tunnel':{'local_port':a.local_port,'remote_port':a.port,'authenticated':True},
         'os':inventory['os'],'cores':inventory['cores'],'memory_total':current['memory_total'],
         'cpu_percent':current['cpu']['value'],'memory_percent':current['memory']['value'],
+        'linux_diagnostics_after_warmup':diagnostics,
         'actual_history_rows':len(history['rows']),'synthetic_history':False,
         'key_revoked':True,'private_key_file_removed':True,'secret_in_client_config':False,'owner_account_changed':False,'screenshots':screenshots,
         'performance':{'baseline_without_mcp':baseline,'sse_and_mcp':monitored,
