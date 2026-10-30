@@ -3,7 +3,7 @@
 <p align="center"><strong>A watchful companion for your server.</strong><br>Live metrics. Clear alerts. Local history. Optional AI insight.</p>
 <p align="center"><a href="https://metricowl.cloud/">Website</a> · <a href="docs/INSTALLATION.md">Installation</a> · <a href="docs/SECURITY.md">Security</a> · <a href="docs/NOTIFICATIONS.md">Notifications</a></p>
 
-**Private preview — v0.1.0-preview.1.** The repository and release assets remain private during validation. Public downloads are not open. Changing repository visibility is an owner decision; no installer or workflow changes it automatically.
+**Private preview — v0.1.0-preview.2.** The repository and release assets remain private during validation. Public downloads are not open. Changing repository visibility is an owner decision; no installer or workflow changes it automatically.
 
 ![Metric Owl control center with example data](website/public/assets/dashboard.jpg)
 

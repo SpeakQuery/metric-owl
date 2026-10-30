@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 let browser;
+let page;
 let stage = 'read private input';
 try {
   const chunks = [];
@@ -23,14 +24,18 @@ try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, colorScheme: 'dark' });
   await context.addCookies(input.cookies.map(cookie => ({ ...cookie, url: origin.origin })));
   await context.addInitScript(() => localStorage.setItem('guard-guide-dismissed', '1'));
-  const page = await context.newPage();
+  page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.name));
   stage = 'open real overview';
   await page.goto(origin.origin + '/admin');
-  await expect(page.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible();
+  stage = 'wait for authenticated overview';
+  await expect(page.getByRole('heading', { name: /^Overview/ })).toBeVisible();
+  stage = 'wait for live data';
   await expect(page.locator('.status-pill')).toHaveText('Live data');
+  stage = 'wait for measured CPU';
   await expect(page.locator('.metric-value').first()).not.toHaveText('—');
+  stage = 'wait for collected chart history';
   await expect(page.getByText('Total CPU, normalized across all cores', { exact: true })).toBeVisible({ timeout: 20000 });
   const files = [];
   async function capture(name) {
@@ -49,6 +54,8 @@ try {
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Applications & storage', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Disks & available space', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Hosted websites', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Refresh results', exact: true })).toBeEnabled();
+  await expect(page.getByText('Waiting for process inventory', { exact: true })).toHaveCount(0);
   await capture('applications-storage');
   stage = 'capture MCP wizard';
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Notifications & connections', exact: true }).click();
@@ -63,6 +70,10 @@ try {
 } catch (error) {
   // Never serialize input, cookie values, or a captured authenticated browser state.
   process.stderr.write(`Remote screenshot capture failed at ${stage} (${error.name}).\n`);
+  if (page) {
+    const headings = await page.locator('h1,h2').allTextContents().catch(() => []);
+    process.stderr.write('Visible headings: ' + JSON.stringify(headings) + '\n');
+  }
   process.exitCode = 1;
 } finally {
   if (browser) await browser.close();

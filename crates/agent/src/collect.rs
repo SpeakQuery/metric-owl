@@ -5,6 +5,14 @@ use std::{
     time::{Duration, Instant},
 };
 use sysinfo::{Disks, Networks, ProcessRefreshKind, ProcessesToUpdate, System};
+fn process_refresh_kind() -> ProcessRefreshKind {
+    // sysinfo includes Linux /proc/<pid>/task entries even with `nothing()`.
+    // Counting those as processes duplicates their owner's RSS and CPU totals.
+    ProcessRefreshKind::nothing()
+        .without_tasks()
+        .with_cpu()
+        .with_memory()
+}
 pub fn host(id: String) -> anyhow::Result<Host> {
     let mut s = System::new()?;
     s.refresh_cpu_all();
@@ -46,46 +54,55 @@ pub fn rate(previous: Option<(u64, u64)>, current: (u64, u64), dt: f64) -> (Read
         )
     }
 }
+pub(crate) const ABSOLUTE_DISK_MIN_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+pub(crate) fn disk_defaults_for_partition(id: &str, total: u64) -> Vec<Rule> {
+    let mut rules = vec![];
+    for (metric, threshold, op, severity, recover) in [
+        ("disk_used", 85., ">=", "warning", 82.),
+        ("disk_used", 95., ">=", "critical", 92.),
+        ("disk_free", 1073741824., "<", "critical", 1395864371.),
+    ] {
+        if metric == "disk_free" && total < ABSOLUTE_DISK_MIN_BYTES {
+            continue;
+        }
+        rules.push(Rule {
+            id: format!(
+                "disk-{}-{}-{severity}",
+                &crate::auth::hash(id)[..24],
+                metric
+            ),
+            name: format!(
+                "Disk {} · {}",
+                id,
+                if metric == "disk_free" {
+                    "Below 1 GiB"
+                } else {
+                    severity
+                }
+            ),
+            source: id.into(),
+            metric: metric.into(),
+            operator: op.into(),
+            threshold,
+            window_seconds: 30,
+            fraction: 1.,
+            severity: severity.into(),
+            recovery_threshold: recover,
+            recovery_seconds: 30,
+            enabled: true,
+            notify: true,
+        });
+    }
+    rules
+}
 pub fn disk_defaults() -> anyhow::Result<Vec<Rule>> {
     let disks = Disks::new_with_refreshed_list()?;
-    let mut rules = vec![];
-    for disk in &disks {
-        let id = disk.mount_point().to_string_lossy().to_string();
-        for (metric, threshold, op, severity, recover) in [
-            ("disk_used", 85., ">=", "warning", 82.),
-            ("disk_used", 95., ">=", "critical", 92.),
-            ("disk_free", 1073741824., "<", "critical", 1395864371.),
-        ] {
-            rules.push(Rule {
-                id: format!(
-                    "disk-{}-{}-{severity}",
-                    &crate::auth::hash(&id)[..24],
-                    metric
-                ),
-                name: format!(
-                    "Disk {} · {}",
-                    id,
-                    if metric == "disk_free" {
-                        "Below 1 GiB"
-                    } else {
-                        severity
-                    }
-                ),
-                source: id.clone(),
-                metric: metric.into(),
-                operator: op.into(),
-                threshold,
-                window_seconds: 30,
-                fraction: 1.,
-                severity: severity.into(),
-                recovery_threshold: recover,
-                recovery_seconds: 30,
-                enabled: true,
-                notify: true,
-            });
-        }
-    }
-    Ok(rules)
+    Ok(disks
+        .iter()
+        .flat_map(|disk| {
+            disk_defaults_for_partition(&disk.mount_point().to_string_lossy(), disk.total_space())
+        })
+        .collect())
 }
 pub fn start(app: App) {
     tokio::spawn(async move {
@@ -180,11 +197,12 @@ async fn run(app: App) -> anyhow::Result<()> {
             system.refresh_processes_specifics(
                 ProcessesToUpdate::All,
                 true,
-                ProcessRefreshKind::nothing().with_cpu().with_memory(),
+                process_refresh_kind(),
             );
             process_rows = system
                 .processes()
                 .iter()
+                .filter(|(_, process)| process.thread_kind() != Some(sysinfo::ThreadKind::Userland))
                 .map(|(pid, p)| Process {
                     id: format!("{}:{}", pid.as_u32(), p.start_time()),
                     name: p.name().to_string_lossy().into(),
@@ -465,6 +483,30 @@ async fn run(app: App) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_collection_does_not_count_linux_threads_as_processes() {
+        let (send, receive) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            let tid = unsafe { libc::gettid() } as u32;
+            send.send(tid).unwrap();
+            std::thread::park();
+        });
+        let tid = receive.recv().unwrap();
+        let mut system = System::new().unwrap();
+        system.refresh_processes_specifics(ProcessesToUpdate::All, true, process_refresh_kind());
+        let owner_present = system
+            .process(sysinfo::Pid::from_u32(std::process::id()))
+            .is_some();
+        let task_present = system.process(sysinfo::Pid::from_u32(tid)).is_some();
+        thread.thread().unpark();
+        thread.join().unwrap();
+        assert!(owner_present, "The real process must remain visible");
+        assert!(
+            !task_present,
+            "A process thread must not duplicate its owner's RSS"
+        );
+    }
     #[test]
     fn counter_reset_is_unavailable() {
         assert!(rate(Some((100, 100)), (10, 100), 1.).0.value.is_none());

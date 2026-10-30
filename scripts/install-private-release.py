@@ -104,7 +104,7 @@ def gh_json(path):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo',default='SpeakQuery/metric-owl')
-    parser.add_argument('--tag',default='v0.1.0-preview.1')
+    parser.add_argument('--tag',default='v0.1.0-preview.2')
     parser.add_argument('--host',required=True,help='Authorized root SSH target, such as root@YOUR_SERVER_IP')
     parser.add_argument('--port',type=int,default=22)
     parser.add_argument('--control')

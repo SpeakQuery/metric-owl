@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 [[ "$(uname -m)" == x86_64 ]] || { printf 'Only the tested x86-64 preview is packaged.\n' >&2; exit 1; }
 source /etc/os-release
 [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 24.04 ]] || { printf 'This release profile requires Ubuntu 24.04.\n' >&2; exit 1; }
-version="${METRIC_OWL_RELEASE_VERSION:-v0.1.0-preview.1}"
+version="${METRIC_OWL_RELEASE_VERSION:-v0.1.0-preview.2}"
 [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || { printf 'Invalid release version.\n' >&2; exit 1; }
 source_commit="${METRIC_OWL_SOURCE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || true)}"
 [[ "$source_commit" =~ ^[a-f0-9]{40}$ ]] || { printf 'Set METRIC_OWL_SOURCE_COMMIT to the exact reviewed Git commit.\n' >&2; exit 1; }

@@ -55,6 +55,6 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: metric-owl-ubuntu24.04-amd64-private-preview
-          path: artifacts/releases/v0.1.0-preview.1/linux-amd64/*
+          path: artifacts/releases/v0.1.0-preview.2/linux-amd64/*
           retention-days: 3
           if-no-files-found: error

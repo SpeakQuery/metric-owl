@@ -3,6 +3,7 @@ mod auth;
 mod boot;
 mod collect;
 mod diagnostics;
+mod disk_defaults_migration;
 mod discovery;
 mod docker_helper;
 mod integrations;
@@ -174,6 +175,7 @@ async fn main() -> anyhow::Result<()> {
     let ipc = mcp::bind_ipc(&cli.data_dir).await?;
     auth.bootstrap(&cli.data_dir).await?;
     guard_core::migration::english(&store).await?;
+    disk_defaults_migration::run(&store).await?;
     let mut rules = store
         .get("rules")
         .await?

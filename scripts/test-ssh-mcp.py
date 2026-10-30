@@ -31,6 +31,7 @@ sse_thread = None
 sse_ages = []
 sse_errors = []
 sse_response = None
+sse_clock_offset = 0
 jar = http.cookiejar.CookieJar()
 http = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar))
 
@@ -72,14 +73,19 @@ def process_snapshot(pids):
     code = '''import json, os, time
 from pathlib import Path
 pids = %s
-result = {"at": time.monotonic(), "processes": {}}
+result = {"at": time.monotonic(), "unix_at": time.time(), "processes": {}}
 for name, pid in pids.items():
     fields = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()
     result["processes"][name] = {"cpu_seconds": (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK"),
         "rss_bytes": int(fields[21]) * os.sysconf("SC_PAGE_SIZE")}
 print(json.dumps(result))
 ''' % repr(pids)
-    return json.loads(remote('python3 -c ' + shlex.quote(code)))
+    started = time.time()
+    result = json.loads(remote('python3 -c ' + shlex.quote(code)))
+    finished = time.time()
+    result['clock_offset_seconds'] = result['unix_at'] - (started + finished) / 2
+    result['clock_uncertainty_seconds'] = (finished - started) / 2
+    return result
 
 def observe_phase(pids, with_mcp=False):
     first = process_snapshot(pids)
@@ -91,7 +97,7 @@ def observe_phase(pids, with_mcp=False):
         start = time.monotonic()
         current = request('current')
         api_ms.append((time.monotonic() - start) * 1000)
-        ages.append(max(0, time.time() - current['at']))
+        ages.append(max(0, time.time() + first['clock_offset_seconds'] - current['at']))
         if with_mcp:
             start = time.monotonic()
             reading = tool('current_metrics', {}, 100 + calls)
@@ -113,6 +119,8 @@ def observe_phase(pids, with_mcp=False):
             'rss_final_bytes': last['processes'][name]['rss_bytes'],
         }
     return {'seconds': round(elapsed, 2), 'processes': processes, 'api_requests': calls,
+        'estimated_server_clock_offset_seconds': round(first['clock_offset_seconds'], 3),
+        'clock_estimate_uncertainty_seconds': round(first['clock_uncertainty_seconds'], 3),
         'api_latency_ms_max': round(max(api_ms), 2), 'sample_age_seconds_max': round(max(ages), 3),
         'mcp_calls': len(mcp_ms), 'mcp_latency_ms_max': round(max(mcp_ms), 2) if mcp_ms else None}
 
@@ -131,11 +139,32 @@ def observe_sse():
                 if line.startswith('event:'): event = line[6:].strip()
                 if line.startswith('data:') and event == 'sample':
                     sample = json.loads(line[5:].strip())
-                    sse_ages.append(max(0, time.time() - sample['at']))
+                    sse_ages.append(max(0, time.time() + sse_clock_offset - sample['at']))
     except Exception as error:
         if not sse_stop.is_set(): sse_errors.append(type(error).__name__)
 
+def process_identities(processes):
+    selected = [{'pid': item['pid'], 'name': item['name']} for item in processes]
+    code = '''import json
+from pathlib import Path
+result = []
+for item in %s:
+    try:
+        status = dict(line.split(":", 1) for line in Path(f"/proc/{item['pid']}/status").read_text().splitlines() if ":" in line)
+        result.append({**item, "tgid": int(status["Tgid"]), "observed": "present"})
+    except FileNotFoundError:
+        result.append({**item, "tgid": None, "observed": "vanished before verification"})
+print(json.dumps(result))
+''' % repr(selected)
+    rows = json.loads(remote('python3 -c ' + shlex.quote(code)))
+    present = [row for row in rows if row['tgid'] is not None]
+    assert present, 'No current process survived long enough for identity verification'
+    assert all(row['pid'] == row['tgid'] for row in present), 'Userland thread listed as a separate process'
+    return rows
+
 try:
+    installed_hash = remote('sha256sum /usr/local/bin/server-guard').split()[0]
+    assert len(installed_hash) == 64 and all(c in '0123456789abcdef' for c in installed_hash)
     remote(f'mkdir {directory} && chown server-guard:server-guard {directory} && chmod 700 {directory}')
     remote(f'systemd-run --quiet --unit={unit} --uid=server-guard --gid=server-guard '
            f'--property=RuntimeMaxSec=300 --property=NoNewPrivileges=yes '
@@ -176,6 +205,8 @@ try:
     current = tool('current_metrics', {}, 3)
     bridge_pid = int(remote('cat ' + shlex.quote(directory + '/bridge.pid')).strip())
     assert bridge_pid > 1
+    sse_clock = process_snapshot({'agent':agent_pid})
+    sse_clock_offset = sse_clock['clock_offset_seconds']
     sse_thread = threading.Thread(target=observe_sse, daemon=True)
     sse_thread.start()
     monitored = observe_phase({'agent': agent_pid, 'mcp_bridge': bridge_pid}, with_mcp=True)
@@ -185,7 +216,22 @@ try:
     assert len(sse_ages) >= a.phase_seconds - 5, 'SSE did not produce continuous live samples'
     monitored['sse_samples'] = len(sse_ages)
     monitored['sse_sample_age_seconds_max'] = round(max(sse_ages), 3)
+    monitored['sse_estimated_server_clock_offset_seconds'] = round(sse_clock_offset, 3)
+    monitored['sse_clock_estimate_uncertainty_seconds'] = round(sse_clock['clock_uncertainty_seconds'], 3)
     current = tool('current_metrics', {}, 1000)
+    verified_processes = process_identities(current['processes'])
+    discovery = request('inventory')
+    rules = request('rules')
+    small_partition_checks = []
+    for disk in current['disks']:
+        if disk['total'] < 10 * 1024**3:
+            absolute = [rule for rule in rules if rule['source'] == disk['id']
+                and rule['metric'] == 'disk_free' and rule['threshold'] == 1024**3 and rule['enabled']]
+            assert not absolute, 'Small partition retained an enabled absolute 1GiB default'
+            percentages = [rule for rule in rules if rule['source'] == disk['id'] and rule['metric'] == 'disk_used' and rule['enabled']]
+            assert len(percentages) >= 2, 'Small partition lost its percentage protection'
+            small_partition_checks.append({'mount':disk['mount'],'total_bytes':disk['total'],
+                'absolute_one_gib_rules':len(absolute),'percentage_rules':len(percentages)})
     diagnostics = [{ 'source': item['source'], 'metric': item['metric'], 'label': item['label'],
         'quality': item['reading']['quality'], 'value': item['reading']['value'],
         'unit': item['reading']['unit'], 'reason': item['reading'].get('reason') }
@@ -202,20 +248,28 @@ try:
         payload = {'origin':origin,'sshHost':a.host.rsplit('@',1)[-1],
             'cookies':[{'name':c.name,'value':c.value,'httpOnly':True,'secure':c.secure,'sameSite':'Strict'} for c in jar]}
         capture = subprocess.run(['node',str(Path(__file__).with_name('capture-remote-test.mjs'))],
-            input=json.dumps(payload),text=True,capture_output=True,check=True,timeout=90)
+            input=json.dumps(payload),text=True,capture_output=True,timeout=90)
+        if capture.returncode:
+            raise RuntimeError(capture.stderr.strip() or 'Remote screenshot capture failed')
         screenshots = json.loads(capture.stdout)
+    assert remote('sha256sum /usr/local/bin/server-guard').split()[0] == installed_hash, 'Installed binary changed during acceptance'
     result = {'result':'passed','transport':'SSH stdio -> scoped local IPC',
+        'installed_binary_sha256':installed_hash,
         'dashboard_tunnel':{'local_port':a.local_port,'remote_port':a.port,'authenticated':True},
         'os':inventory['os'],'cores':inventory['cores'],'memory_total':current['memory_total'],
         'cpu_percent':current['cpu']['value'],'memory_percent':current['memory']['value'],
         'linux_diagnostics_after_warmup':diagnostics,
+        'top_process_identity_verification':verified_processes,
+        'service_inventory':discovery['services'],
+        'hosted_domain_declarations':len(discovery['sites']),
+        'small_partition_defaults':small_partition_checks,
         'actual_history_rows':len(history['rows']),'synthetic_history':False,
         'key_revoked':True,'private_key_file_removed':True,'secret_in_client_config':False,'owner_account_changed':False,'screenshots':screenshots,
         'performance':{'baseline_without_mcp':baseline,'sse_and_mcp':monitored,
             'target_cpu_below_one_percent':all(v['processes']['agent']['cpu_percent_one_core'] < 1 for v in [baseline,monitored]),
             'target_memory_below_100mib':all(v['processes']['agent']['rss_peak_bytes'] < 100*1024*1024 for v in [baseline,monitored]),
             'target_live_age_below_two_seconds':max(baseline['sample_age_seconds_max'],monitored['sample_age_seconds_max'],monitored['sse_sample_age_seconds_max']) < 2,
-            'note':'Short bounded observation on a shared real host, not a stress test or long-term performance guarantee.'}}
+            'note':'Short bounded observation on a shared real host, not a stress test or long-term performance guarantee. Sample ages use an SSH round-trip midpoint estimate of server clock offset; network asymmetry remains measurement uncertainty.'}}
 finally:
     sse_stop.set()
     if sse_response:

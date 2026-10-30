@@ -8,7 +8,7 @@ On your own computer, authenticate GitHub CLI with an account that can read the 
 
     python3 scripts/install-private-release.py --host root@YOUR_SERVER_IP
 
-The default repository is SpeakQuery/metric-owl and version is v0.1.0-preview.1. Use --port for a different SSH port or --control for an existing SSH control socket. GitHub authentication stays on your computer. The server receives short-lived asset URLs over encrypted SSH input, downloads directly from GitHub, verifies checksums and source metadata, and installs the application. No GitHub token is written to the server.
+The default repository is SpeakQuery/metric-owl and version is v0.1.0-preview.2. Use --port for a different SSH port or --control for an existing SSH control socket. GitHub authentication stays on your computer. The server receives short-lived asset URLs over encrypted SSH input, downloads directly from GitHub, verifies checksums and source metadata, and installs the application. No GitHub token is written to the server.
 
 ## Open the control center
 

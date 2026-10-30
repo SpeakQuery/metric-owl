@@ -7,10 +7,10 @@ must remain private until the owner explicitly changes it.
 
 ## Working components
 
-- Real CPU, per-core CPU, available-memory-based usage, network counters, disks and top processes.
+- Real CPU, per-core CPU, available-memory-based usage, network counters, disks and top processes. Linux user threads are excluded from process counts and service RSS totals.
 - Linux diagnostic readers for swap, memory PSI, CPU I/O wait, OOM counters, block I/O latency/utilization and inode usage. Unsupported, stale and reset counters are unavailable rather than fabricated zeros.
 - Minute history and progressively coarser SQLite aggregates, event evidence, retention pressure and quota reporting.
-- Ready-made CPU, memory, disk and Linux diagnostic rules; editable time windows, recovery and severity. User-deleted diagnostic presets are not recreated on every restart.
+- Ready-made CPU, memory, disk and Linux diagnostic rules; editable time windows, recovery and severity. User-deleted diagnostic presets are not recreated on every restart. Small partitions retain percentage rules; the fixed 1 GiB free-space default is seeded only for volumes of at least 10 GiB.
 - Selected log files with redaction and rotation handling; bounded folder scanning; optional Linux service/journal and permission-limited Docker helper sources.
 - Bounded discovery of declared Nginx/Apache hostnames and running service/database engines. Discovery does not enable monitoring automatically or change web configuration.
 - HTTP status, expected text/JSON and response-time checks. DNS and content-check failures produce failure measurements; blocked network destinations remain unavailable. Redirects are not followed.
@@ -35,8 +35,8 @@ acceptance is reported separately from macOS; a Mac build is never Linux evidenc
 
 A single bounded xAI generation with synthetic data succeeded. Automatic AI analysis
 remains disabled in the test installation. Credentials are stored outside source code
-and encrypted in the agent database. SMTP authentication succeeded against the configured
-provider; this alone is not evidence of an inbox-delivered notification.
+and encrypted in the agent database. SMTP authentication and one provider-accepted test message succeeded against the configured
+provider; inbox delivery has not been confirmed.
 
 ## Deliberate preview limits
 

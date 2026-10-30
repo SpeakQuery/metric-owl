@@ -13,7 +13,7 @@ source /etc/os-release
 [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 24.04 ]] || {
   printf 'This preview installer supports Ubuntu 24.04 x86-64 only.\nDebian and other Linux releases are not yet validated for this binary.\n' >&2; exit 1;
 }
-release_url="${GUARD_RELEASE_URL:-https://github.com/SpeakQuery/metric-owl/releases/download/v0.1.0-preview.1}"
+release_url="${GUARD_RELEASE_URL:-https://github.com/SpeakQuery/metric-owl/releases/download/v0.1.0-preview.2}"
 [[ "$release_url" == https://* && "$release_url" != *'?'* && "$release_url" != *'#'* ]] || {
   printf 'GUARD_RELEASE_URL must identify a versioned HTTPS release.\n' >&2; exit 1;
 }
