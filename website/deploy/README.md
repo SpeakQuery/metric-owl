@@ -1,8 +1,8 @@
 # Metric Owl public website deployment
 
-The static marketing site and authenticated monitoring panel share the HTTPS host,
-with app assets isolated under `/admin/assets/`. Only `website/public/` is copied
-to the static site. Application source, databases,
+The static marketing site is separate from every self-hosted monitoring panel.
+It exposes no `/admin` or `/api` endpoint and does not host installation scripts.
+Only `website/public/` is copied to the static site. Application source, databases,
 setup keys, SMTP credentials and verification artifacts must never be copied there.
 
 ## Current server layout
@@ -20,14 +20,10 @@ The existing Certbot timer renews this certificate. The hook only reloads Nginx
 after a successful config check and only for this certificate lineage. HSTS applies
 to the exact named hosts; no includeSubDomains or preload policy is set.
 
-HTTP and HTTPS `www` redirect to the canonical HTTPS apex. The explicit operator
-configuration proxies `/admin` and `/api/v1/` to the loopback listener. Configure
-`GUARD_PUBLIC_ORIGIN` and the private proxy credential before enabling it. Install
-`metricowl-panel-proxy.conf` as the named Nginx snippet; its separate root-only token
-snippet must overwrite `X-Guard-Proxy-Token` using the same random credential loaded
-by the service. Never commit that credential or rewrite incoming Origin headers.
-Other hosts and their certificates are not edited. The database and API remain
-authenticated even though the sign-in page is reachable from the internet.
+HTTP and HTTPS `www` redirect to the canonical HTTPS apex. `/admin`, `/api` and
+all their child paths return 404. Customer dashboards run independently on their
+own servers; the product website is not an authentication proxy or central account
+service. Other hosts and their certificates are not edited.
 
 Unknown and blocked paths keep HTTP 404 while rendering the public `404.html`
 through an internal Nginx error-page route. Direct requests to `/404.html` also
@@ -49,11 +45,11 @@ It records the old/new release and SHA-256 of every public file. Never publish
 the containing repository, a `.env` file or the artifacts directory.
 
 The content switch needs no Nginx reload. Verify HTTPS, all links/assets, mobile and
-desktop views, screenshot tabs/dialog and FAQ. The panel must return a sign-in page;
-`/api/v1/current` and other data APIs must return 401 without a session, and foreign
-Origin requests must return 403. `/.git/config`, `/.env` and unknown paths stay 404.
-The sole published shell file, `install.sh`, must exactly match the reviewed
-version-pinned bootstrap source; the publish helper enforces this equality.
+desktop views, screenshot tabs/dialog and FAQ. `/admin`, `/admin/assets/`,
+`/api/v1/current`, `/install.sh`, `/.git/config`, `/.env` and unknown paths must
+return 404. The public site contains no shell installer. All install buttons and
+copyable commands point directly to the version-pinned GitHub source; release
+binaries are downloaded from GitHub. The publisher rejects shell-file extensions.
 
 ## Rollback
 

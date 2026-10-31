@@ -124,7 +124,7 @@ pub async fn incident(app: &App, i: &Incident) -> Result<()> {
         };
     let payload = json!({"alias":s.alias,"title":i.title,"severity":i.severity,"summary":redact(&i.evidence,2048),"recommendation":redact(&i.recommendation,1024),"event_id":i.id,"at":i.updated_at,"resolved":i.resolved_at.is_some()});
     let mut jobs = vec![];
-    if should && s.recipient_verified && !s.relay_url.is_empty() {
+    if should && s.recipient_verified && crate::smtp::enabled(&s) {
         jobs.push((
             format!("mail:{}:{}", i.id, i.updated_at),
             "email",
@@ -173,6 +173,7 @@ pub fn report_slots(s: &Settings, from: i64, to: i64) -> Result<Vec<String>> {
     Ok(keys.into_iter().collect())
 }
 pub fn validate_settings(s: &Settings) -> Result<()> {
+    crate::smtp::validate(s)?;
     ensure!(
         s.alias.len() <= 100 && s.recipient.len() <= 254 && s.report_times.len() <= 8,
         "Settings limit exceeded"
@@ -215,15 +216,18 @@ async fn cycle(app: &App) -> Result<()> {
         .await?
         .and_then(|x| x.parse::<i64>().ok())
         .unwrap_or(now as i64 - 60);
-    if s.reports && s.recipient_verified {
+    let mail_ready = s.recipient_verified && crate::smtp::enabled(&s);
+    if s.reports && (mail_ready || !s.webhook_url.is_empty()) {
         for slot in report_slots(&s, last, now as i64)? {
             let events = app.store.incidents(0).await?;
             let active = events.iter().filter(|i| i.resolved_at.is_none()).count();
             let sample = app.latest.read().await.clone();
             let payload = json!({"alias":s.alias,"title":"Daily server report","severity":"info","summary":format!("{} open incidents. CPU: {:?}%, memory: {:?}%.",active,sample.as_ref().and_then(|s|s.cpu.value),sample.as_ref().and_then(|s|s.memory.value)),"recommendation":"Detailed history and incidents are available in your local dashboard.","at":now});
-            app.store
-                .enqueue(format!("report:{slot}"), "email".into(), payload.clone())
-                .await?;
+            if mail_ready {
+                app.store
+                    .enqueue(format!("report:{slot}"), "email".into(), payload.clone())
+                    .await?;
+            }
             if !s.webhook_url.is_empty() {
                 app.store
                     .enqueue(format!("report-hook:{slot}"), "webhook".into(), payload)
@@ -234,9 +238,14 @@ async fn cycle(app: &App) -> Result<()> {
     app.store
         .put("schedule_cursor", (now as i64).to_string())
         .await?;
-    let jobs:Vec<(String,String,String,u32)>=app.store.read(move|c|{let mut st=c.prepare("SELECT id,kind,payload,attempts FROM outbox WHERE state='pending' AND kind!='ai' AND next_at<=?1 ORDER BY created LIMIT 5")?;Ok(st.query_map([now],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<rusqlite::Result<_>>()?)}).await?;
+    // Disabled or unverified mail stays queued without starving other channels.
+    let jobs:Vec<(String,String,String,u32)>=app.store.read(move|c|{let mut st=c.prepare("SELECT id,kind,payload,attempts FROM outbox WHERE state='pending' AND kind!='ai' AND next_at<=?1 AND (kind!='email' OR ?2) ORDER BY created LIMIT 5")?;Ok(st.query_map(params![now,mail_ready],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<rusqlite::Result<_>>()?)}).await?;
     for (id, kind, payload, attempts) in jobs {
         let body: Value = serde_json::from_str(&payload)?;
+        if kind == "email" && !crate::smtp::enabled(&s) {
+            // Disabling mail suspends the queue without consuming retries or quota.
+            continue;
+        }
         if kind == "email" && !app.store.reserve_budget("email", &id, 60).await? {
             defer_quota(app, id, now).await?;
             continue;
@@ -245,6 +254,17 @@ async fn cycle(app: &App) -> Result<()> {
         let result = if kind == "email" {
             if !s.recipient_verified {
                 Err(anyhow::anyhow!("No verified recipient"))
+            } else if s.email_transport == "smtp" {
+                // Re-read under the settings lock so a saved SMTP identity and its
+                // encrypted password always match during submission.
+                let _config = app.config_lock.lock().await;
+                let current = app.settings.read().await.clone();
+                if current.email_transport != "smtp"
+                    || crate::smtp::identity(&current) != crate::smtp::identity(&s)
+                {
+                    continue;
+                }
+                crate::smtp::notification(app, &current, &body).await
             } else {
                 relay(
                     app,
@@ -268,7 +288,9 @@ async fn cycle(app: &App) -> Result<()> {
         }
         let (state, error) = match result {
             Ok(()) => (
-                if kind == "email" {
+                if kind == "email" && s.email_transport == "smtp" {
+                    "provider_accepted"
+                } else if kind == "email" {
                     "relay_queued"
                 } else {
                     "accepted"
@@ -284,7 +306,7 @@ async fn cycle(app: &App) -> Result<()> {
         let next = now + 30. * 2f64.powi(attempts.min(10) as i32);
         app.store.write(move|c|{c.execute("UPDATE outbox SET state=?1,attempts=attempts+1,next_at=?2,error=?3 WHERE id=?4",params![state,next,error,id])?;Ok(())}).await?;
     }
-    if s.recipient_verified && !s.relay_url.is_empty() {
+    if s.recipient_verified && s.email_transport == "relay" && !s.relay_url.is_empty() {
         let pending: Vec<String> = app
             .store
             .read(|c| {
@@ -393,7 +415,7 @@ async fn ai_cycle(app: &App) -> Result<()> {
         Ok(result) => {
             let summary = redact(result["analysis"].as_str().unwrap_or(""), 2048);
             let email = json!({"alias":s.alias,"title":"Expert analysis summary","summary":summary,"recommendation":"AI interpretations require verification. Details are available in your local dashboard."});
-            let notify = s.recipient_verified;
+            let notify = s.recipient_verified && crate::smtp::enabled(&s);
             app.store.write(move|c|{let tx=c.transaction()?;tx.execute("UPDATE outbox SET state='accepted',attempts=attempts+1,error=NULL WHERE id=?1",[&id])?;if notify{tx.execute("INSERT OR IGNORE INTO outbox(id,kind,payload,next_at,created) VALUES(?1,'email',?2,?3,?3)",params![format!("ai-mail:{id}"),email.to_string(),guard_core::now()])?;}tx.commit()?;Ok(())}).await?;
         }
         Err(e) => {
@@ -495,6 +517,58 @@ mod tests {
             .timestamp();
         let slots = report_slots(&s, from, from + 10800).unwrap();
         assert_eq!(slots.len(), 1);
+    }
+    #[tokio::test]
+    async fn disabling_email_does_not_starve_webhook_jobs_or_scheduled_reports() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = crate::api_email_tests::fixture(dir.path()).await;
+        {
+            let mut settings = app.settings.write().await;
+            settings.timezone = "UTC".into();
+            settings.report_times = vec![chrono::Utc::now().format("%H:%M").to_string()];
+            // Rejected before any network connection; still exercises queue progress.
+            settings.webhook_url = "https://127.0.0.1".into();
+        }
+        for i in 0..6 {
+            app.store
+                .enqueue(format!("email-{i}"), "email".into(), json!({}))
+                .await
+                .unwrap();
+        }
+        app.store
+            .enqueue("hook".into(), "webhook".into(), json!({}))
+            .await
+            .unwrap();
+        cycle(&app).await.unwrap();
+        app.store
+            .read(|c| {
+                let mail_attempts: u32 = c.query_row(
+                    "SELECT SUM(attempts) FROM outbox WHERE kind='email'",
+                    [],
+                    |r| r.get(0),
+                )?;
+                let hook_attempts: u32 =
+                    c.query_row("SELECT attempts FROM outbox WHERE id='hook'", [], |r| {
+                        r.get(0)
+                    })?;
+                let reports: u32 = c.query_row(
+                    "SELECT COUNT(*) FROM outbox WHERE id LIKE 'report-hook:%'",
+                    [],
+                    |r| r.get(0),
+                )?;
+                let reservations: u32 = c.query_row(
+                    "SELECT COUNT(*) FROM budget_reservations WHERE kind='email'",
+                    [],
+                    |r| r.get(0),
+                )?;
+                assert_eq!(mail_attempts, 0);
+                assert_eq!(hook_attempts, 1);
+                assert_eq!(reports, 1);
+                assert_eq!(reservations, 0);
+                Ok(())
+            })
+            .await
+            .unwrap();
     }
 }
 #[cfg(test)]

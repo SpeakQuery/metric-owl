@@ -2263,6 +2263,7 @@ dependencies = [
  "hex",
  "hmac",
  "iana-time-zone",
+ "lettre",
  "libc",
  "mime_guess",
  "rand 0.8.8",

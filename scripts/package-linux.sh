@@ -6,8 +6,13 @@ cd "$(dirname "$0")/.."
 source /etc/os-release
 [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 24.04 ]] || { echo 'Build this preview package on Ubuntu 24.04.' >&2; exit 1; }
 arch=amd64
-version=0.1.0~preview.2
+version=0.1.0~preview.4
 file artifacts/release/server-guard | grep -q ELF || { echo 'A Linux ELF binary is required.' >&2; exit 1; }
+program_headers="$(readelf -lW artifacts/release/server-guard)"
+dynamic_entries="$(readelf -dW artifacts/release/server-guard)"
+if grep -q INTERP <<< "$program_headers" || grep -q NEEDED <<< "$dynamic_entries"; then
+  echo 'The package requires the static musl binary.' >&2; exit 1
+fi
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/DEBIAN" "$stage/usr/local/bin" "$stage/lib/systemd/system" "$stage/usr/share/doc/server-guard"
@@ -17,6 +22,7 @@ cp LICENSE "$stage/usr/share/doc/server-guard/copyright"
 cp BINARY-LICENSE.txt "$stage/usr/share/doc/server-guard/"
 cp scripts/show-setup.sh "$stage/usr/share/doc/server-guard/show-setup.sh"
 cp scripts/connection-hints.sh "$stage/usr/share/doc/server-guard/connection-hints.sh"
+cp scripts/uninstall-linux.sh "$stage/usr/share/doc/server-guard/uninstall-linux.sh"
 cp scripts/configure-https.py "$stage/usr/share/doc/server-guard/configure-https.py"
 cp -R artifacts/release/third-party-licenses "$stage/usr/share/doc/server-guard/"
 cat > "$stage/DEBIAN/control" <<CONTROL
@@ -26,8 +32,8 @@ Section: admin
 Priority: optional
 Architecture: $arch
 Maintainer: Metric Owl <services@metricowl.cloud>
-Depends: libc6 (>= 2.39), curl, bash, ca-certificates, systemd
-Description: Metric Owl private preview for Ubuntu 24.04
+Depends: curl, bash, ca-certificates, systemd, python3
+Description: Metric Owl public preview for Ubuntu 24.04
  Local read-only server monitoring with a secure web panel.
 CONTROL
 cat > "$stage/DEBIAN/postinst" <<'POST'

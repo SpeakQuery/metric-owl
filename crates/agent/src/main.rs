@@ -1,4 +1,6 @@
 mod api;
+#[cfg(test)]
+mod api_email_tests;
 mod auth;
 mod boot;
 mod collect;
@@ -9,6 +11,7 @@ mod docker_helper;
 mod integrations;
 mod mcp;
 mod probes;
+mod smtp;
 mod targets;
 mod web_access;
 use clap::{Parser, Subcommand};
@@ -67,6 +70,13 @@ pub struct Settings {
     pub reports: bool,
     pub quota_bytes: u64,
     pub relay_url: String,
+    #[serde(default = "legacy_email_transport")]
+    pub email_transport: String,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_security: String,
+    pub smtp_username: String,
+    pub smtp_from: String,
     pub recipient: String,
     pub recipient_verified: bool,
     pub webhook_url: String,
@@ -74,6 +84,9 @@ pub struct Settings {
     pub ai_model: String,
     pub ai_base_url: String,
     pub ai_auto: bool,
+}
+fn legacy_email_transport() -> String {
+    "relay".into()
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -86,6 +99,12 @@ impl Default for Settings {
             reports: true,
             quota_bytes: 1024 * 1024 * 1024,
             relay_url: String::new(),
+            email_transport: "disabled".into(),
+            smtp_host: String::new(),
+            smtp_port: 465,
+            smtp_security: "tls".into(),
+            smtp_username: String::new(),
+            smtp_from: String::new(),
             recipient: String::new(),
             recipient_verified: false,
             webhook_url: String::new(),

@@ -57,6 +57,7 @@ install -d -m 755 /usr/share/doc/server-guard
 for notice in LICENSE BINARY-LICENSE.txt THIRD-PARTY-NOTICES.txt; do
   if [[ -f "$bundle/$notice" ]]; then install -m 644 "$bundle/$notice" "/usr/share/doc/server-guard/$notice"; fi
 done
+if [[ -f "$scripts_dir/uninstall-linux.sh" ]]; then install -m 644 "$scripts_dir/uninstall-linux.sh" /usr/share/doc/server-guard/; fi
 install -m 644 "$scripts_dir/show-setup.sh" "$scripts_dir/connection-hints.sh" /usr/share/doc/server-guard/
 if [[ -f "$scripts_dir/configure-https.py" ]]; then install -m 644 "$scripts_dir/configure-https.py" /usr/share/doc/server-guard/; fi
 systemctl daemon-reload

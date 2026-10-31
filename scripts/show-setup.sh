@@ -32,12 +32,12 @@ p=pathlib.Path('/etc/metric-owl/panel-access.json')
 if p.is_symlink() or p.stat().st_size>4096:raise SystemExit('Invalid HTTPS access marker.')
 data=json.loads(p.read_text());value=data.get('public_origin','')
 if data.get('managed') not in ('operator','installer'):raise SystemExit('Invalid HTTPS access marker.')
-if not re.fullmatch(r'https://[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?',value):raise SystemExit('Invalid HTTPS panel address.')
+if not re.fullmatch(r'https://[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[1-9][0-9]{0,4})?',value):raise SystemExit('Invalid HTTPS panel address.')
 print(value)
 PY
 )"
 fi
-if [[ -n "$panel_origin" && ! "$panel_origin" =~ ^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; then
+if [[ -n "$panel_origin" && ! "$panel_origin" =~ ^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[1-9][0-9]{0,4})?$ ]]; then
   printf 'Invalid HTTPS panel address; setup details were not displayed.\n' >&2; exit 1;
 fi
 setup_key=''

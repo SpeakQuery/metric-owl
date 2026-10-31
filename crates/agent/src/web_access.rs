@@ -223,6 +223,64 @@ mod tests {
         assert!(WebAccess::new("https://panel.example.com", "short").is_err());
     }
     #[test]
+    fn public_ip_panel_requires_exact_ip_port_tls_and_proxy_proof() {
+        let access = WebAccess::new("https://203.0.113.10:8443", TOKEN).unwrap();
+        let mut headers = public_headers();
+        headers.insert("host", HeaderValue::from_static("203.0.113.10:8443"));
+        headers.insert(
+            "origin",
+            HeaderValue::from_static("https://203.0.113.10:8443"),
+        );
+        assert_eq!(access.validate(&headers, &Method::POST), Ok(Mode::Https));
+        for host in [
+            "203.0.113.10",
+            "203.0.113.10:443",
+            "203.0.113.11:8443",
+            "panel.example.com:8443",
+            "203.0.113.10:08443",
+        ] {
+            let mut h = headers.clone();
+            h.insert("host", HeaderValue::from_str(host).unwrap());
+            assert!(access.validate(&h, &Method::GET).is_err(), "{host}");
+        }
+        for origin in [
+            "https://203.0.113.10",
+            "http://203.0.113.10:8443",
+            "https://203.0.113.11:8443",
+            "null",
+        ] {
+            let mut h = headers.clone();
+            h.insert("origin", HeaderValue::from_str(origin).unwrap());
+            assert!(access.validate(&h, &Method::POST).is_err(), "{origin}");
+        }
+        for name in ["origin", "x-forwarded-proto", "x-guard-proxy-token"] {
+            let mut h = headers.clone();
+            h.remove(name);
+            assert!(
+                access.validate(&h, &Method::POST).is_err(),
+                "missing {name}"
+            );
+            let mut h = headers.clone();
+            h.append(name, h[name].clone());
+            assert!(
+                access.validate(&h, &Method::POST).is_err(),
+                "duplicate {name}"
+            );
+        }
+        assert!(
+            WebAccess::default()
+                .validate(&headers, &Method::GET)
+                .is_err()
+        );
+        for origin in [
+            "https://203.000.113.10:8443",
+            "https://203.0.113.10:8443/",
+            "http://203.0.113.10:8443",
+        ] {
+            assert!(WebAccess::new(origin, TOKEN).is_err(), "{origin}");
+        }
+    }
+    #[test]
     fn proxy_credential_permissions_are_checked() {
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("token");

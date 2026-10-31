@@ -1,12 +1,47 @@
-# Notification relay
+# Optional email notifications
 
-End users do not need an SMTP account. An operator sets up the relay and sending
-domain once. The agent sends only a server alias, incident summary, selected metrics,
-and a recommendation. Incident email cannot be sent to unverified recipients.
-The allowance is 60 messages per device per day; retries of the same message do
-not spend the allowance again. Exhausted quotas defer messages until the next UTC
-day. Verification email is limited to five per device per day; a code expires after
-10 minutes and permits at most five attempts.
+Email is **off by default**. Monitoring, local alerts and the dashboard work
+without an email account, notification relay or central Metric Owl service.
+
+## Use your own SMTP provider
+
+Open **Notifications & connections → Email & reports** and select
+**My SMTP provider**. Enter the provider hostname, SMTP username and password,
+and an allowed sender address. Choose **TLS / 465** or **STARTTLS / 587**.
+The agent connects directly to a public SMTP provider; private/local SMTP targets
+are rejected. It does not install a mail server.
+
+1. **Save SMTP settings**, then **Test SMTP connection**. This verifies TLS and
+   authentication without sending email.
+2. Enter your notification recipient and select **Send verification code**.
+   Enter the code received in that mailbox.
+3. Select **Send test email**, then check the mailbox. Choose your report times
+   and instant-alert preferences when ready.
+
+The SMTP password is encrypted in your own server's data directory. It is never
+returned by the settings API. A blank password field preserves the saved secret.
+Changing the SMTP server or username requires entering the password again.
+Changes to the transport, SMTP configuration or recipient require recipient
+verification again. TLS certificate validation is required; plaintext SMTP is
+not supported.
+
+A successful connection test is not evidence of delivery. **Provider accepted**
+means the provider accepted the message, not that it arrived in the inbox. Check
+the queue and recipient mailbox separately. No public promise of inbox delivery
+is made by this preview.
+
+Only the recipient, server alias, event/report summary, selected measurements
+and recommendation are sent for email delivery. Raw logs are not attachments.
+The allowance is 60 messages per day. Verification codes expire after 10 minutes;
+verification attempts and sends are rate limited. The local durable queue retries
+transient failures. AI analysis is independent and never delays critical email.
+
+## Optional notification relay
+
+Choose **Optional notification relay** only if your operator supplies one. It is
+an alternative transport, not a required Metric Owl cloud service. Recipients
+must still be verified. The relay can use SMTP, Postmark or a local test mailbox.
+The following sections are for relay operators and development.
 
 ## Local development (no external email)
 
@@ -22,7 +57,7 @@ Messages are written to `.test-data/relay/test-mailbox.jsonl`; read the verifica
 code there. This file is for local tests only. Production UI responses never contain
 the verification code.
 
-## SMTP submission through an existing provider
+## Relay operator: SMTP submission through an existing provider
 
 The relay also supports authenticated SMTP. It connects to an external email
 provider; it does not install an MTA, open an inbound mail port, or require mail
@@ -38,8 +73,8 @@ RELAY_PROVIDER=smtp
 SMTP_HOST=smtp.hostinger.com
 SMTP_PORT=465
 SMTP_SECURITY=tls
-SMTP_USERNAME=services@metricowl.cloud
-SMTP_FROM="Metric Owl <services@metricowl.cloud>"
+SMTP_USERNAME=notifications@example.com
+SMTP_FROM="Metric Owl <notifications@example.com>"
 ```
 
 `SMTP_PASSWORD_FILE` must point to an absolute, regular private file (mode 0600

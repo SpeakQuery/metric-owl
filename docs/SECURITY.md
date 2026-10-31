@@ -1,12 +1,14 @@
 # Security model
 
 The application listener binds only to `127.0.0.1`, including when optional HTTPS
-access is enabled. Default access is local or through SSH forwarding. Loopback
+access is enabled. The guided installer exposes a trusted HTTPS proxy on the
+server’s public IPv4 address; the Rust listener remains private. Manual local-only
+installations use loopback or SSH forwarding. Loopback
 Host authorities are strictly validated; write requests require the matching
 Origin and a session-bound CSRF token. CORS is not enabled. The local HTTP cookie
 is HttpOnly and SameSite=Strict; it does not use `Secure` without TLS.
 
-An operator may explicitly enable HTTPS browser access by setting
+The guided provisioner enables HTTPS browser access by setting
 `GUARD_PUBLIC_ORIGIN` to one exact HTTPS origin and `GUARD_PROXY_TOKEN_FILE` to a
 private proxy-token file. The guided installer creates a password-based administrator account. MFA is
 optional and can be enabled in Security & system. Manual installs retain the one-time key flow;
@@ -20,18 +22,30 @@ responses, request logs and published configuration.
 
 HTTPS sessions use the separate `__Host-guard_session` cookie with Secure,
 HttpOnly, SameSite=Strict and Path=/, and no Domain attribute. Public and loopback
-cookies are not interchangeable. Authentication, MFA, session expiry and CSRF
-checks remain required. Use the browser panel at `/admin` or `/admin/`; application
+cookies are not interchangeable. Authentication, session expiry and CSRF checks
+remain required; a second factor is checked when MFA is enabled. Use the browser panel at `/admin` or `/admin/`; application
 assets are namespaced under `/admin/assets/` and authenticated API calls use
 `/api/v1/`. Unknown paths return 404. The `/admin` path is a usability choice, not
 an authentication boundary. HTTPS dashboard access does not enable HTTP MCP.
 
-The basic service installer does not edit virtual hosts or certificates. The
-optional HTTPS provisioner adds a dedicated Nginx host and certificate after the
-operator selects a hostname; existing virtual-host conflicts fail safely. It does
-not silently replace other sites or open the application port to the network.
-Linux installation needs root to install the service, but the service runs as the
-restricted `server-guard` account. No public application listener is opened.
+The base service installer does not edit virtual hosts or certificates. The guided
+HTTPS provisioner detects a public IPv4 address, selects an available panel port
+from 8443 / 9443 / 10443, and requests a trusted certificate for that IP. No domain
+is required. It owns a separate Nginx configuration, private certificate-client
+environment and renewal timer. Existing websites and certificate clients are not
+silently replaced. Metric Owl uses port 80 for ACME validation and renewal; other
+websites can still serve their existing HTTP traffic on that port. Panel traffic
+uses the chosen HTTPS port. The internal application port 4877 stays on loopback.
+
+When UFW is active, the provisioner records and adds only its required rules.
+It does not disable the firewall or assume control of cloud firewall settings.
+Port availability is checked separately from external reachability. Failed
+configuration is reported instead of enabling plaintext login or asking users to
+bypass certificate warnings. Uninstall removes only installer-owned configuration,
+renewal units and rules, while retaining account/history and certificate files.
+Linux installation needs root, but the agent runs as the restricted `server-guard`
+account. OS/architecture detection happens locally without uploading an inventory
+to GitHub. The marketing website is separate and exposes no customer dashboard.
 
 The guided installer passes administrator credentials through bounded stdin,
 stores an Argon2id password hash, and never puts the password in a command argument
@@ -61,8 +75,14 @@ API keys use AES-256-GCM encryption. `master.key` has mode 0600 and the data dir
 has mode 0700. An attacker controlling the OS account or root can also read the local
 master key; encryption is not an independent vault against that threat. Network
 clients cannot retrieve secrets; the API reports only whether a key is configured.
-Authentication secrets and provider keys are not logged. Raw logs are not forwarded
-to the notification relay.
+Authentication secrets and provider keys are not logged. Optional email is disabled
+by default. Users can connect directly to a public SMTP provider over validated
+TLS 465 or mandatory STARTTLS 587; a notification relay is an optional alternative.
+The encrypted SMTP password is never returned by settings APIs. Server/username
+changes require password re-entry, and transport/identity/secret changes invalidate
+recipient verification. Email requires a verified recipient; raw logs are not
+forwarded. A successful SMTP connection test sends no email, and provider
+acceptance is not proof of inbox delivery.
 
 MCP uses the official rmcp SDK and an explicit tool allowlist. The Unix socket has
 mode 0600. Each call also checks the client token hash, scopes, and revocation state.

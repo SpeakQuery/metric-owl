@@ -23,6 +23,9 @@ jobs:
         run: |
           npm install --global pnpm@10.32.1
           rustup show
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
           pnpm --dir web install --frozen-lockfile
       - name: Build embedded frontend assets
         run: pnpm --dir web build
@@ -48,16 +51,17 @@ jobs:
         run: |
           pnpm --dir web exec playwright install --with-deps chromium
           pnpm --dir web e2e
+          node web/tests/email-ui.mjs
       - name: Package preview
         run: |
-          cargo build --release --workspace --locked
+          CC_x86_64_unknown_linux_musl=musl-gcc cargo build --release --locked --target x86_64-unknown-linux-musl -p server-guard
           mkdir -p artifacts/release
-          cp target/release/server-guard artifacts/release/server-guard
+          cp target/x86_64-unknown-linux-musl/release/server-guard artifacts/release/server-guard
           python3 scripts/collect-licenses.py
           METRIC_OWL_SOURCE_COMMIT="$GITHUB_SHA" bash scripts/package-linux-release.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: metric-owl-ubuntu24.04-amd64-preview
-          path: artifacts/releases/v0.1.0-preview.3/linux-amd64/*
+          name: metric-owl-linux-amd64-preview
+          path: artifacts/releases/v0.1.0-preview.4/linux-amd64/*
           retention-days: 3
           if-no-files-found: error

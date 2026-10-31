@@ -582,7 +582,7 @@ async fn save_targets(State(a): State<App>, h: HeaderMap, Json(mut t): Json<Vec<
 }
 async fn settings(State(a): State<App>) -> Api {
     Ok(Json(
-        json!({"settings":*a.settings.read().await,"keys":{"ai":a.store.get("secret:ai").await?.is_some(),"relay":a.store.get("secret:relay").await?.is_some(),"webhook":a.store.get("secret:webhook").await?.is_some()}}),
+        json!({"settings":*a.settings.read().await,"keys":{"ai":a.store.get("secret:ai").await?.is_some(),"relay":a.store.get("secret:relay").await?.is_some(),"smtp":a.store.get("secret:smtp").await?.is_some(),"webhook":a.store.get("secret:webhook").await?.is_some()}}),
     ))
 }
 #[derive(Deserialize)]
@@ -595,26 +595,43 @@ async fn save_settings(State(a): State<App>, h: HeaderMap, Json(mut b): Json<Set
     a.auth.require_step_up(&cookie(&h)).await?;
     crate::integrations::validate_settings(&b.settings)?;
     let old = a.settings.read().await.clone();
-    b.settings.recipient_verified = old.recipient_verified
-        && old.recipient == b.settings.recipient
-        && old.relay_url == b.settings.relay_url;
-    for (name, key) in b.keys.unwrap_or_default() {
+    b.settings.recipient_verified =
+        old.recipient_verified && crate::smtp::identity(&old) == crate::smtp::identity(&b.settings);
+    let keys = b.keys.unwrap_or_default();
+    if (old.smtp_host != b.settings.smtp_host || old.smtp_username != b.settings.smtp_username)
+        && a.store.get("secret:smtp").await?.is_some()
+    {
         ensure!(
-            ["ai", "relay", "webhook"].contains(&name.as_str()) && key.len() <= 4096,
+            keys.get("smtp").is_some_and(|key| !key.is_empty()),
+            "Re-enter the SMTP password when changing the host or username"
+        );
+    }
+    let mut sealed = Vec::new();
+    for (name, key) in keys {
+        ensure!(
+            ["ai", "relay", "webhook", "smtp"].contains(&name.as_str()) && key.len() <= 4096,
             "Invalid connection key"
         );
         if !key.is_empty() {
-            a.store
-                .put(&format!("secret:{name}"), a.auth.seal(&key)?)
-                .await?;
-            if name == "relay" {
+            if name == "smtp" {
+                crate::smtp::validate_password(&key)?;
+            }
+            sealed.push((format!("secret:{name}"), a.auth.seal(&key)?));
+            if name == "relay" || name == "smtp" {
                 b.settings.recipient_verified = false;
             }
         }
     }
-    a.store
-        .put("settings", serde_json::to_string(&b.settings)?)
-        .await?;
+    let encoded = serde_json::to_string(&b.settings)?;
+    let invalidate = !b.settings.recipient_verified;
+    a.store.write(move|c|{
+        let tx=c.transaction()?;
+        for (key,value) in sealed.into_iter().chain(std::iter::once(("settings".into(),encoded))) {
+            tx.execute("INSERT INTO kv(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value])?;
+        }
+        if invalidate {tx.execute("DELETE FROM kv WHERE key='smtp_verification'",[])?;}
+        tx.commit()?;Ok(())
+    }).await?;
     *a.settings.write().await = b.settings;
     a.store
         .audit("admin".into(), "settings.update".into())
@@ -622,10 +639,17 @@ async fn save_settings(State(a): State<App>, h: HeaderMap, Json(mut b): Json<Set
     Ok(Json(json!({"ok":true})))
 }
 async fn connection_test(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) -> Api {
+    let _config = a.config_lock.lock().await;
     a.auth.require_step_up(&cookie(&h)).await?;
     let kind = p["kind"].as_str().unwrap_or("");
     let s = a.settings.read().await.clone();
     match kind {
+        "smtp" => {
+            crate::smtp::check(&a, &s).await?;
+            Ok(Json(
+                json!({"ok":true,"message":"SMTP TLS and authentication verified. No email was sent."}),
+            ))
+        }
         "relay" => {
             let result = crate::integrations::relay(&a, "status", json!({})).await?;
             Ok(Json(
@@ -661,22 +685,39 @@ async fn connection_test(State(a): State<App>, h: HeaderMap, Json(p): Json<Value
     }
 }
 async fn recipient_start(State(a): State<App>, h: HeaderMap) -> Api {
+    let _config = a.config_lock.lock().await;
     a.auth.require_step_up(&cookie(&h)).await?;
-    let r = a.settings.read().await.recipient.clone();
+    let s = a.settings.read().await.clone();
+    if s.email_transport == "smtp" {
+        return Ok(Json(crate::smtp::start_verification(&a, &s).await?));
+    }
+    ensure!(
+        s.email_transport == "relay",
+        "Choose and configure an email connection first"
+    );
     Ok(Json(
-        crate::integrations::relay(&a, "recipient/start", json!({"recipient":r})).await?,
+        crate::integrations::relay(&a, "recipient/start", json!({"recipient":s.recipient})).await?,
     ))
 }
 async fn recipient_verify(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) -> Api {
     let _config = a.config_lock.lock().await;
     a.auth.require_step_up(&cookie(&h)).await?;
     let mut s = a.settings.read().await.clone();
-    let result = crate::integrations::relay(
-        &a,
-        "recipient/verify",
-        json!({"recipient":s.recipient,"code":p["code"]}),
-    )
-    .await?;
+    let result = if s.email_transport == "smtp" {
+        crate::smtp::verify(&a.store, &s, p["code"].as_str().unwrap_or("")).await?;
+        json!({"verified":true})
+    } else {
+        ensure!(
+            s.email_transport == "relay",
+            "Choose and configure an email connection first"
+        );
+        crate::integrations::relay(
+            &a,
+            "recipient/verify",
+            json!({"recipient":s.recipient,"code":p["code"]}),
+        )
+        .await?
+    };
     s.recipient_verified = result["verified"] == true;
     a.store.put("settings", serde_json::to_string(&s)?).await?;
     *a.settings.write().await = s;
@@ -689,6 +730,10 @@ async fn notifications(State(a): State<App>) -> Api {
 async fn test_email(State(a): State<App>, h: HeaderMap) -> Api {
     a.auth.require_step_up(&cookie(&h)).await?;
     let s = a.settings.read().await;
+    ensure!(
+        crate::smtp::enabled(&s),
+        "Choose and configure an email connection first"
+    );
     ensure!(s.recipient_verified, "Verify your email address first");
     a.store.enqueue(format!("test:{}",uuid::Uuid::new_v4()),"email".into(),json!({"alias":s.alias,"title":"Connection test","summary":"Metric Owl test notification.","recommendation":"This is not an alert."})).await?;
     Ok(Json(

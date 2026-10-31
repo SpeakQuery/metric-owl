@@ -94,58 +94,123 @@ class InstallerTests(unittest.TestCase):
                     self.assertIn('optionally enable two-factor authentication', result.stdout)
                     self.assertNotIn('Enter your authenticator code', result.stdout)
 
-    def test_hostname_input_cannot_inject_shell_or_nginx(self):
-        self.assertEqual(module.hostname('Monitor.Example.com'), 'monitor.example.com')
-        for value in ['127.0.0.1', 'https://monitor.example.com', 'x; return 200;#', 'a\nb.com',
-                      'a..com', '-a.example.com', 'a.example.com:443', '*.example.com',
-                      'x.localhost', 'x.test', '$hostname.com', 'a.example.com/']:
+    def test_public_ipv4_rejects_private_special_and_injection_inputs(self):
+        self.assertEqual(module.public_ip('8.8.8.8'), '8.8.8.8')
+        for value in ['127.0.0.1', '10.0.0.1', '192.168.1.1', '100.64.0.1', '169.254.1.1',
+                      '0.0.0.0', '224.1.1.1', '255.255.255.255', '::1', '2001:4860:4860::8888',
+                      '8.8.8.8:8443', 'https://8.8.8.8', '8.8.8.8;return 200;', '8.8.8.8\n', None]:
             with self.subTest(value=value), self.assertRaises(ValueError):
-                module.hostname(value)
+                module.public_ip(value)
 
-    def test_existing_site_conflicts_include_wildcards(self):
-        for declaration in ['monitor.example.com', '*.example.com', '.example.com', 'monitor.*']:
-            self.assertTrue(module.host_collision('server_name ' + declaration + ';', 'monitor.example.com'))
-        self.assertFalse(module.host_collision('server_name example.com www.example.com;', 'monitor.example.com'))
-        with self.assertRaises(ValueError):
-            module.host_collision('server_name ~^monitor.*;', 'monitor.example.com')
+    def test_public_origin_supports_exact_ip_port_and_preserves_old_hostname(self):
+        self.assertEqual(module.public_origin('https://8.8.8.8:8443'), 'https://8.8.8.8:8443')
+        self.assertEqual(module.public_origin('https://monitor.example.com'), 'https://monitor.example.com')
+        for value in ['http://8.8.8.8:8443', 'https://8.8.8.8:8443/', 'https://8.8.8.8:0443',
+                      'https://127.0.0.1:8443', 'https://8.8.8.8:65536', 'https://8.8.8.8:4877',
+                      'https://user@8.8.8.8:8443', 'https://8.8.8.8:8443?x=1']:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                module.public_origin(value)
 
-    def test_other_web_server_is_rejected_even_when_nginx_is_installed(self):
-        with tempfile.TemporaryDirectory() as directory:
-            paths = {name: Path(directory) / name for name in ['MARKER', 'CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL']}
-            with patch.multiple(module, **paths), patch.object(module, 'existing_origin', return_value=None), \
-                    patch.object(module, 'Path', side_effect=lambda value: Path(directory) / 'certificates' if value == '/etc/letsencrypt/live' else Path(value)), \
-                    patch.object(module.os, 'geteuid', return_value=0), \
-                    patch.dict(module.os.environ, {'GUARD_HTTPS_DOMAIN': 'monitor.example.com'}), \
-                    patch.object(module.socket, 'getaddrinfo', return_value=[(0, 0, 0, '', ('8.8.8.8', 443))]), \
-                    patch.object(module.shutil, 'which', return_value='/usr/sbin/nginx'), \
-                    patch.object(module, 'run', return_value=subprocess.CompletedProcess([], 0, 'LISTEN 0 511 *:80 *:* users:(("apache2",pid=123,fd=4))\n', '')) as runner, \
-                    patch.object(module, 'atomic') as writer:
-                with self.assertRaisesRegex(ValueError, 'Another web server'):
-                    module.configure()
+    def test_port_fallback_is_bounded_and_explicit_port_never_falls_back(self):
+        def run(args, **kwargs):
+            return subprocess.CompletedProcess(args, 0, 'occupied' if args[-1] != ':10443' else '', '')
+        with patch.dict(module.os.environ, {}, clear=True), patch.object(module, 'run', side_effect=run) as runner:
+            self.assertEqual(module.choose_panel_port(), 10443)
+            self.assertEqual([c.args[0][-1] for c in runner.call_args_list], [':8443', ':9443', ':10443'])
+        with patch.dict(module.os.environ, {'GUARD_PANEL_PORT': '8443'}, clear=True), patch.object(module, 'run', side_effect=run) as runner:
+            with self.assertRaisesRegex(ValueError, 'already used'):
+                module.choose_panel_port()
             self.assertEqual(runner.call_count, 1)
-            writer.assert_not_called()
 
-    def test_existing_operator_configuration_is_not_modified(self):
+    def test_ip_discovery_uses_interfaces_and_ssh_target_without_external_lookup(self):
+        interfaces = [{'addr_info': [{'local': '10.0.0.1'}, {'local': '8.8.8.8'}, {'local': '1.1.1.1'}]}]
+        result = subprocess.CompletedProcess([], 0, json.dumps(interfaces), '')
+        with patch.dict(module.os.environ, {'SSH_CONNECTION': '10.0.0.2 123 1.1.1.1 22'}, clear=True), patch.object(module, 'run', return_value=result) as runner:
+            self.assertEqual(module.discover_public_ip(), '1.1.1.1')
+            self.assertEqual(runner.call_args.args[0], ['ip', '-j', '-4', 'addr', 'show', 'scope', 'global'])
+        with patch.dict(module.os.environ, {}, clear=True), patch.object(module, 'run', return_value=result):
+            self.assertEqual(module.discover_public_ip(), '')
+
+    def test_ip_host_collision_and_custom_regex_are_not_overwritten(self):
+        self.assertTrue(module.host_collision('server_name 8.8.8.8;', '8.8.8.8'))
+        self.assertFalse(module.host_collision('server_name example.com *.example.com;', '8.8.8.8'))
+        with self.assertRaises(ValueError):
+            module.host_collision('server_name ~^custom;', '8.8.8.8')
+
+    def test_new_site_follows_existing_implicit_default(self):
         with tempfile.TemporaryDirectory() as directory:
-            marker = Path(directory) / 'panel-access.json'
-            marker.write_text(json.dumps({'public_origin': 'https://monitor.example.com', 'managed': 'operator'}))
-            original = marker.read_bytes()
-            with patch.object(module.os, 'geteuid', return_value=0), \
-                    patch.object(module, 'existing_origin', return_value=module.existing_origin(marker)), \
-                    patch.object(module, 'verify_panel') as verifier, \
-                    patch.object(module, 'run') as runner, patch.object(module, 'prompt') as prompt:
-                module.configure()
-            runner.assert_not_called()
-            prompt.assert_not_called()
-            verifier.assert_called_once_with('monitor.example.com')
-            self.assertEqual(marker.read_bytes(), original)
+            site = Path(directory) / 'zz-metricowl-panel.conf'
+            (site.parent / 'existing.conf').write_text('server {}')
+            with patch.object(module, 'SITES_CONF', site):
+                self.assertEqual(module.select_conf('include /etc/nginx/sites-enabled/*;'), site)
+                (site.parent / 'zzz-custom.conf').write_text('server {}')
+                with self.assertRaises(ValueError):
+                    module.select_conf('include /etc/nginx/sites-enabled/*;')
+            with self.assertRaises(ValueError):
+                module.select_conf('include /etc/nginx/conf.d/*.conf; listen 80;')
 
-    def test_marker_rejects_paths_and_symlinks(self):
+    def test_exact_ip_routes_keep_normal_web_ports_and_root_page_separate(self):
+        config = module.tls_config('8.8.8.8', 9443)
+        self.assertIn('listen 9443 ssl http2;', config)
+        self.assertNotIn('listen 443', config)
+        self.assertNotIn('default_server;', config)
+        self.assertIn('if ($http_host != 8.8.8.8:9443)', config)
+        self.assertIn('location = / { return 404; }', config)
+        self.assertIn('location = /admin', config)
+        self.assertIn('location ^~ /.well-known/acme-challenge/', config)
+        self.assertIn('/etc/metric-owl/acme/live/metricowl-ip/fullchain.pem', config)
+        self.assertNotIn('/etc/letsencrypt/', config)
+
+    def test_proxy_includes_port_and_clears_untrusted_forwarded_headers(self):
+        config = module.proxy_config('8.8.8.8:8443', 'a' * 64)
+        self.assertIn('proxy_set_header Host 8.8.8.8:8443;', config)
+        self.assertIn('proxy_set_header X-Forwarded-Proto https;', config)
+        self.assertIn('proxy_set_header Forwarded "";', config)
+        self.assertIn('proxy_buffering off;', config)
+        with self.assertRaises(ValueError):
+            module.proxy_config('8.8.8.8:8443', 'bad\nheader')
+
+    def test_renewal_is_isolated_and_scheduled_twice_daily(self):
+        service = module.renewal_service()
+        self.assertIn('/opt/metric-owl/certbot/bin/certbot renew', service)
+        self.assertIn('--config-dir /etc/metric-owl/acme', service)
+        self.assertIn('--deploy-hook /etc/metric-owl/renew-panel', service)
+        self.assertNotIn('/etc/letsencrypt', service)
+        self.assertIn('OnCalendar=*-*-* 00,12:00:00', module.renewal_timer())
+        self.assertIn('Persistent=true', module.renewal_timer())
+
+    def test_ufw_preserves_existing_rules_and_tracks_only_its_additions(self):
+        calls = []
+        def run(args, **kwargs):
+            calls.append(args)
+            stdout = 'Status: active\n80/tcp ALLOW Anywhere\n443/tcp ALLOW Anywhere\nOpenSSH ALLOW Anywhere\n' if args == ['ufw', 'status'] else ''
+            return subprocess.CompletedProcess(args, 0, stdout, '')
+        with patch.object(module.shutil, 'which', return_value='/usr/sbin/ufw'), patch.object(module, 'run', side_effect=run):
+            self.assertEqual(module.open_firewall(9443), [9443])
+        self.assertIn(['ufw', 'allow', '9443/tcp', 'comment', module.FIREWALL_TAG], calls)
+        self.assertFalse(any('disable' in c or 'reset' in c or 'flush' in c for c in calls))
+        self.assertNotIn(['ufw', 'allow', '80/tcp', 'comment', module.FIREWALL_TAG], calls)
+
+    def test_ufw_removal_requires_exact_owned_comment(self):
+        output = "ufw allow 8443/tcp comment 'User rule'\nufw allow 9443/tcp comment 'Metric Owl installer'\n"
+        with patch.object(module.shutil, 'which', return_value='/usr/sbin/ufw'), patch.object(module, 'run', return_value=subprocess.CompletedProcess([], 0, output, '')) as runner:
+            module.close_firewall([8443, 9443])
+        calls = [c.args[0] for c in runner.call_args_list]
+        self.assertIn(['ufw', '--force', 'delete', 'allow', '9443/tcp'], calls)
+        self.assertNotIn(['ufw', '--force', 'delete', 'allow', '8443/tcp'], calls)
+
+    def test_existing_operator_configuration_is_preserved(self):
+        with patch.object(module.os, 'geteuid', return_value=0), patch.object(module, 'existing_origin', return_value='https://monitor.example.com'), patch.object(module, 'verify_panel') as verifier, patch.object(module, 'run') as runner, patch.object(module, 'prompt') as prompt:
+            module.configure()
+        verifier.assert_called_once_with('monitor.example.com')
+        runner.assert_not_called()
+        prompt.assert_not_called()
+
+    def test_marker_rejects_paths_symlinks_and_unknown_managers(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / 'marker'
-            for value in ['http://example.com', 'https://example.com/admin', 'https://evil.com:443',
-                          'https://example.com\nX-Header: something']:
-                marker.write_text(json.dumps({'public_origin': value, 'managed': 'operator'}))
+            for value in ['http://8.8.8.8:8443', 'https://8.8.8.8:8443/admin']:
+                marker.write_text(json.dumps({'public_origin': value, 'managed': 'installer'}))
                 with self.assertRaises(ValueError):
                     module.existing_origin(marker)
             marker.unlink()
@@ -154,67 +219,167 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.existing_origin(marker)
 
-    def test_proxy_uses_fixed_authority_and_strips_untrusted_forwarding(self):
-        text = module.proxy_config('monitor.example.com', 'a' * 64)
-        self.assertIn('proxy_set_header Host monitor.example.com;', text)
-        self.assertIn('proxy_set_header X-Forwarded-Proto https;', text)
-        self.assertIn('proxy_set_header Forwarded "";', text)
-        self.assertIn('proxy_set_header X-Forwarded-For $remote_addr;', text)
-        self.assertNotIn('$http_x_forwarded', text)
-        self.assertIn('proxy_buffering off;', text)
-        with self.assertRaises(ValueError):
-            module.proxy_config('monitor.example.com', 'bad\nheader')
-
-    def test_tls_routes_are_bounded_and_auth_is_rate_limited(self):
-        text = module.tls_config('monitor.example.com')
-        self.assertIn('ssl_protocols TLSv1.2 TLSv1.3;', text)
-        self.assertIn('location ^~ /admin/', text)
-        self.assertIn('location /api/v1/', text)
-        self.assertIn('limit_req zone=metricowl_panel_login burst=5 nodelay;', text)
-        self.assertIn('location / { return 404; }', text)
-        self.assertIn('client_max_body_size 64k;', text)
-
-    def test_atomic_private_credential_permissions(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'private/token'
-            module.atomic(path, 'synthetic-test-value', 0o600)
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-            self.assertEqual(path.read_text(), 'synthetic-test-value')
-            self.assertEqual(len(list(path.parent.iterdir())), 1)
-
-    def test_failure_rolls_back_only_new_files_and_preserves_existing_site(self):
+    def test_failed_certificate_rolls_back_only_owned_configuration_and_firewall(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            owned = {name: root / name for name in ['MARKER', 'CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'WEBROOT']}
-            existing = root / 'existing-site.conf'
-            existing.write_text('server_name existing.example.com;')
-            commands = []
-
+            names = ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER', 'WEBROOT']
+            paths = {name: root / name for name in names}
+            existing_site = root / 'existing-site.conf'
+            existing_site.write_text('server_name existing.example.com;')
+            calls = []
             def run(args, **kwargs):
-                commands.append(args)
-                if args[:2] in [['systemctl', 'is-active'], ['systemctl', 'is-enabled']]:
-                    return subprocess.CompletedProcess(args, 3, '', '')
-                if args[:2] == ['nginx', '-T']:
-                    return subprocess.CompletedProcess(args, 0, 'include /etc/nginx/conf.d/*.conf;\nserver_name existing.example.com;', '')
+                calls.append(args)
+                if args[0] == str(module.CERTBOT):
+                    raise RuntimeError('synthetic failure')
                 return subprocess.CompletedProcess(args, 0, '', '')
-
-            with patch.multiple(module, **owned), patch.object(module, 'existing_origin', return_value=None), \
-                    patch.object(module, 'Path', side_effect=lambda value: root / 'certificates' if value == '/etc/letsencrypt/live' else Path(value)), \
-                    patch.object(module.os, 'geteuid', return_value=0), \
-                    patch.dict(module.os.environ, {'GUARD_HTTPS_DOMAIN': 'monitor.example.com', 'GUARD_HTTPS_EMAIL': '', 'GUARD_HTTPS_AGREE_TOS': '1'}), \
-                    patch.object(module.socket, 'getaddrinfo', return_value=[(0, 0, 0, '', ('8.8.8.8', 443))]), \
-                    patch.object(module.shutil, 'which', return_value='/test/bin'), patch.object(module, 'run', side_effect=run), \
-                    patch.object(module, 'verify_panel', side_effect=RuntimeError('synthetic TLS failure')):
-                with self.assertRaisesRegex(RuntimeError, 'synthetic TLS failure'):
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_PUBLIC_IP': '8.8.8.8', 'GUARD_HTTPS_AGREE_TOS': '1'}, clear=True), patch.object(module.shutil, 'which', return_value=None), patch.object(module, 'ensure_prerequisites'), patch.object(module, 'run', side_effect=run), patch.object(module, 'open_firewall', return_value=[8443]), patch.object(module, 'close_firewall') as closer:
+                with self.assertRaisesRegex(RuntimeError, 'provider firewall'):
                     module.configure()
-            for name in ['MARKER', 'CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL']:
-                self.assertFalse(owned[name].exists(), name)
-            self.assertEqual(owned['WEBROOT'].stat().st_mode & 0o777, 0o755)
-            self.assertEqual((owned['WEBROOT'] / '.well-known/acme-challenge').stat().st_mode & 0o777, 0o755)
-            self.assertEqual(existing.read_text(), 'server_name existing.example.com;')
-            self.assertEqual(commands.count(['systemctl', 'restart', 'server-guard']), 2)
-            self.assertIn(['systemctl', 'stop', 'nginx'], commands)
-            self.assertIn(['systemctl', 'disable', 'nginx'], commands)
+            self.assertEqual(existing_site.read_text(), 'server_name existing.example.com;')
+            self.assertFalse(paths['SITES_CONF'].exists())
+            self.assertFalse(paths['MARKER'].exists())
+            closer.assert_called_once_with([8443])
+            certificate_command = next(c for c in calls if c[0] == str(module.CERTBOT))
+            self.assertIn('--ip-address', certificate_command)
+            self.assertIn('shortlived', certificate_command)
+            self.assertIn('--keep-until-expiring', certificate_command)
+            self.assertNotIn('--staging', certificate_command)
+
+    def test_other_webserver_is_left_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = {name: Path(directory) / name for name in ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER']}
+            def run(args, **kwargs):
+                return subprocess.CompletedProcess(args, 0, 'LISTEN users:(("apache2",pid=123))' if args[-1] == ':80' else '', '')
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_PUBLIC_IP': '8.8.8.8'}, clear=True), patch.object(module, 'run', side_effect=run) as runner, patch.object(module, 'ensure_prerequisites') as prerequisites:
+                with self.assertRaisesRegex(ValueError, 'Another web server'):
+                    module.configure()
+            prerequisites.assert_not_called()
+            self.assertFalse(any('systemctl' in call.args[0] for call in runner.call_args_list))
+
+    def test_ip_port_summary_prints_direct_url(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            curl = temp / 'curl'
+            curl.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"configured":true,"mfa_required":false,"process_id":12345}\'\n')
+            curl.chmod(0o755)
+            result = subprocess.run(['bash', str(ROOT / 'scripts/show-setup.sh'), str(temp), 'ssh', '4877', '12345'], capture_output=True, text=True, check=True, env={**os.environ, 'PATH':str(temp)+os.pathsep+os.environ['PATH'], 'GUARD_PUBLIC_ORIGIN':'https://8.8.8.8:9443'})
+            self.assertIn('Admin panel: https://8.8.8.8:9443/admin', result.stdout)
+            self.assertNotIn('ssh -N', result.stdout)
+            self.assertNotIn('Setup key:', result.stdout)
+
+    def test_fresh_ip_setup_records_owned_paths_and_uninstall_preserves_certificate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            names = ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER', 'WEBROOT', 'ACME']
+            paths = {name: root / name for name in names}
+            certificate = paths['ACME'] / 'live/metricowl-ip/fullchain.pem'
+            certificate.parent.mkdir(parents=True)
+            certificate.write_text('synthetic certificate preserved across reinstall')
+            calls = []
+            def run(args, **kwargs):
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0, '', '')
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_PUBLIC_IP': '8.8.8.8', 'GUARD_HTTPS_AGREE_TOS': '1'}, clear=True), patch.object(module.shutil, 'which', return_value=None), patch.object(module, 'ensure_prerequisites'), patch.object(module, 'run', side_effect=run), patch.object(module, 'open_firewall', return_value=[8443]), patch.object(module, 'close_firewall') as closer, patch.object(module, 'verify_panel') as verify:
+                module.configure()
+                data = json.loads(paths['MARKER'].read_text())
+                self.assertEqual(data['public_origin'], 'https://8.8.8.8:8443')
+                self.assertEqual(data['firewall_ports'], [8443])
+                self.assertEqual(paths['TOKEN'].stat().st_mode & 0o777, 0o600)
+                self.assertIn('Environment=GUARD_PUBLIC_ORIGIN=https://8.8.8.8:8443', paths['DROPIN'].read_text())
+                verify.assert_called_once_with('8.8.8.8:8443')
+                self.assertIn(['systemctl', 'start', paths['RENEW_SERVICE'].name], calls)
+                module.uninstall_https()
+                closer.assert_called_once_with([8443])
+            for name in ['MARKER', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER']:
+                self.assertFalse(paths[name].exists())
+            self.assertTrue(certificate.exists())
+
+    def test_explicit_ufw_deny_is_not_silently_overridden(self):
+        output = 'Status: active\n80/tcp ALLOW Anywhere\n8443/tcp DENY Anywhere\n'
+        with patch.object(module.shutil, 'which', return_value='/usr/sbin/ufw'), patch.object(module, 'run', return_value=subprocess.CompletedProcess([], 0, output, '')) as runner:
+            with self.assertRaisesRegex(ValueError, 'explicitly blocks'):
+                module.open_firewall(8443)
+        self.assertFalse(any('allow' in call.args[0] or 'delete' in call.args[0] for call in runner.call_args_list))
+
+    def test_rollback_restart_failure_still_cleans_firewall_and_restores_nginx(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            names = ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER', 'WEBROOT']
+            paths = {name: root / name for name in names}
+            calls = []
+            def run(args, **kwargs):
+                calls.append(args)
+                if args == ['systemctl', 'restart', 'server-guard']:
+                    raise RuntimeError('synthetic private command failure')
+                return subprocess.CompletedProcess(args, 0, '', '')
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_PUBLIC_IP': '8.8.8.8', 'GUARD_HTTPS_AGREE_TOS': '1'}, clear=True), patch.object(module.shutil, 'which', return_value='/usr/sbin/nginx'), patch.object(module, 'select_conf', return_value=paths['SITES_CONF']), patch.object(module, 'ensure_prerequisites'), patch.object(module, 'run', side_effect=run), patch.object(module, 'open_firewall', return_value=[80, 8443]), patch.object(module, 'close_firewall') as closer:
+                with self.assertRaisesRegex(RuntimeError, 'cleanup was incomplete'):
+                    module.configure()
+                recovery = module.recovery_path()
+                data = json.loads(recovery.read_text())
+                self.assertEqual(recovery.stat().st_mode & 0o777, 0o600)
+            closer.assert_called_once_with([80, 8443])
+            self.assertGreaterEqual(calls.count(['systemctl', 'reload', 'nginx']), 2)
+            self.assertEqual(data['ownership']['firewall_ports'], [80, 8443])
+            self.assertEqual(data['cleanup_failures'][0]['step'], 'restart private application')
+            self.assertNotIn('synthetic private command failure', json.dumps(data))
+            self.assertFalse(paths['MARKER'].exists())
+
+    def test_uninstall_firewall_failure_keeps_ownership_and_is_retryable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {name: root / name for name in ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER']}
+            for path in paths.values():
+                path.write_text('synthetic owned file')
+            data = {'public_origin': 'https://8.8.8.8:8443', 'managed': 'installer', 'schema': 2,
+                    'nginx_conf': str(paths['SITES_CONF']), 'firewall_ports': [8443], 'port': 8443}
+            paths['MARKER'].write_text(json.dumps(data))
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.object(module, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')), patch.object(module, 'close_firewall', side_effect=RuntimeError('synthetic firewall failure')):
+                with self.assertRaisesRegex(RuntimeError, 'ownership marker was retained'):
+                    module.uninstall_https()
+                self.assertEqual(json.loads(paths['MARKER'].read_text()), data)
+                self.assertEqual(json.loads(module.recovery_path().read_text())['ownership']['firewall_ports'], [8443])
+                self.assertFalse(paths['SITES_CONF'].exists())
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.object(module, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')), patch.object(module, 'close_firewall') as closer:
+                module.uninstall_https()
+                closer.assert_called_once_with([8443])
+                self.assertFalse(paths['MARKER'].exists())
+                self.assertFalse(module.recovery_path().exists())
+
+    def test_uninstall_restore_failure_retains_private_recovery_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {name: root / name for name in ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER']}
+            paths['SITES_CONF'].write_text('original owned nginx config')
+            data = {'public_origin': 'https://8.8.8.8:8443', 'managed': 'installer', 'schema': 2,
+                    'nginx_conf': str(paths['SITES_CONF']), 'firewall_ports': [8443], 'port': 8443}
+            paths['MARKER'].write_text(json.dumps(data))
+            original_atomic = module.atomic
+            def atomic(path, text, mode=0o644):
+                if path == paths['SITES_CONF']:
+                    raise OSError('synthetic disk failure')
+                original_atomic(path, text, mode)
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.object(module, 'run', side_effect=RuntimeError('synthetic nginx error')), patch.object(module, 'atomic', side_effect=atomic), patch.object(module, 'close_firewall') as closer:
+                with self.assertRaisesRegex(RuntimeError, 'restoration could not be completed'):
+                    module.uninstall_https()
+                recovery = module.recovery_path()
+                self.assertEqual(json.loads(recovery.read_text())['nginx_conf_backup'], 'original owned nginx config')
+                self.assertEqual(recovery.stat().st_mode & 0o777, 0o600)
+                self.assertTrue(paths['MARKER'].exists())
+                closer.assert_not_called()
+
+    def test_firewall_cleanup_failure_does_not_skip_other_owned_ports(self):
+        calls = []
+        output = "ufw allow 80/tcp comment 'Metric Owl installer'\nufw allow 9443/tcp comment 'Metric Owl installer'\n"
+        def run(args, **kwargs):
+            calls.append(args)
+            if args == ['ufw', '--force', 'delete', 'allow', '9443/tcp']:
+                raise RuntimeError('synthetic UFW failure')
+            return subprocess.CompletedProcess(args, 0, output, '')
+        with patch.object(module.shutil, 'which', return_value='/usr/sbin/ufw'), patch.object(module, 'run', side_effect=run):
+            with self.assertRaisesRegex(RuntimeError, '9443'):
+                module.close_firewall([80, 9443])
+        self.assertIn(['ufw', '--force', 'delete', 'allow', '80/tcp'], calls)
 
 
 if __name__ == '__main__':
