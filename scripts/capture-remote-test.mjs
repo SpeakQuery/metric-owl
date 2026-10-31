@@ -59,8 +59,8 @@ try {
   await capture('applications-storage');
   stage = 'capture MCP wizard';
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Notifications & connections', exact: true }).click();
-  await page.getByRole('tab', { name: 'MCP clients', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Connect your AI agent', exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'External AI apps (MCP)', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Connect an external AI app', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'A remote server', exact: false }).click();
   await page.getByLabel('Server IP or hostname', { exact: true }).fill(input.sshHost);
   await expect(page.getByText('SSH key sign-in is required.', { exact: true })).toBeVisible();

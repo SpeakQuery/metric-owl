@@ -17,6 +17,108 @@ const PROXY: &str = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcde
 const PASSWORD: &str = "isolated-password-only-test";
 const SMTP_PASSWORD: &str = "smtp-private-fixture-credential";
 
+#[tokio::test]
+async fn ai_connection_requires_session_csrf_and_matching_provider_credential() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = fixture(dir.path()).await;
+    let router = api::router(app.clone());
+    assert_eq!(
+        call(&router, Method::GET, "ai/providers", None, "", "")
+            .await
+            .0,
+        401
+    );
+    let (_, headers, login) = call(
+        &router,
+        Method::POST,
+        "auth/login",
+        Some(json!({"username":"owner","password":PASSWORD})),
+        "",
+        "",
+    )
+    .await;
+    let cookie = headers["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    let csrf = login["session"]["csrf"].as_str().unwrap();
+    let (_, _, catalog) = call(&router, Method::GET, "ai/providers", None, cookie, "").await;
+    assert_eq!(catalog["providers"].as_array().unwrap().len(), 10);
+    assert_eq!(catalog["selected_provider"], "groq");
+    assert_eq!(catalog["verified"], false);
+    let request = json!({"provider":"openai", "key":"synthetic-key"});
+    assert_eq!(
+        call(
+            &router,
+            Method::POST,
+            "ai/connect",
+            Some(request),
+            cookie,
+            ""
+        )
+        .await
+        .0,
+        403
+    );
+    for body in [
+        json!({"provider":"unknown","key":"synthetic-key"}),
+        json!({"provider":"openai","key":"bad\nkey"}),
+    ] {
+        let result = call(
+            &router,
+            Method::POST,
+            "ai/connect",
+            Some(body),
+            cookie,
+            csrf,
+        )
+        .await;
+        assert_eq!(result.0, 400);
+        assert!(!result.2.to_string().contains("synthetic-key"));
+    }
+    assert!(app.store.get("secret:ai").await.unwrap().is_none());
+    app.store
+        .put("secret:ai", app.auth.seal("previous-provider-key").unwrap())
+        .await
+        .unwrap();
+    let saved = app.store.get("secret:ai").await.unwrap();
+    assert_eq!(
+        call(
+            &router,
+            Method::POST,
+            "ai/connect",
+            Some(json!({"provider":"openai"})),
+            cookie,
+            csrf
+        )
+        .await
+        .0,
+        400
+    );
+    let mut settings = app.settings.read().await.clone();
+    settings.ai_base_url = "https://api.openai.com/v1".into();
+    assert_eq!(
+        call(
+            &router,
+            Method::PUT,
+            "settings",
+            Some(json!({"settings":settings,"keys":{}})),
+            cookie,
+            csrf
+        )
+        .await
+        .0,
+        400
+    );
+    assert_eq!(app.store.get("secret:ai").await.unwrap(), saved);
+    assert_eq!(
+        app.settings.read().await.ai_base_url,
+        "https://api.groq.com/openai/v1"
+    );
+}
+
 pub(crate) async fn fixture(dir: &Path) -> App {
     let store = Store::open(&dir.join("db")).unwrap();
     let auth = auth::Auth::new(store.clone(), dir).await.unwrap();

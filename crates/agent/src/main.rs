@@ -1,3 +1,4 @@
+mod ai;
 mod api;
 #[cfg(test)]
 mod api_email_tests;

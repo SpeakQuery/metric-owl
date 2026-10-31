@@ -4,6 +4,7 @@ import type {Rule} from './generated/Rule';
 import type {ConnectionTab} from './SetupGuide';
 import {api, bytes, severity} from './lib';
 import './OverviewProtection.css';
+import {basicRules, timingText} from './rulePresentation';
 
 type Props = {
   onManage: () => void;
@@ -41,11 +42,6 @@ const metrics: Record<string, {label: string; group: 'cpu' | 'memory' | 'disk'; 
 };
 const number = new Intl.NumberFormat('en-GB', {maximumFractionDigits: 2});
 const icons = {cpu: Cpu, memory: MemoryStick, disk: HardDrive};
-function windowLabel(seconds: number) {
-  if (seconds >= 3600 && seconds % 3600 === 0) return `${number.format(seconds / 3600)} hr`;
-  if (seconds >= 60 && seconds % 60 === 0) return `${number.format(seconds / 60)} min`;
-  return `${number.format(seconds)} sec`;
-}
 function threshold(rule: Rule) {
   const unit = metrics[rule.metric].unit;
   return `${rule.operator} ${unit === 'bytes' ? bytes(rule.threshold) : number.format(rule.threshold) + (unit === '%' ? '%' : unit === 'ms' ? ' ms' : '')}`;
@@ -88,7 +84,7 @@ export default function OverviewProtection({onManage, onCreate, onConnection}: P
     return () => {current = false; window.removeEventListener('focus', load);};
   }, [retry]);
 
-  const included = (rules || []).filter(rule => metrics[rule.metric]);
+  const included = basicRules(rules || [], null).flatMap(item => item.rule ? [item.rule] : []);
   const groupOrder = {cpu: 0, memory: 1, disk: 2};
   const rows = [...included].sort((a, b) => groupOrder[metrics[a.metric].group] - groupOrder[metrics[b.metric].group]
     || a.source.localeCompare(b.source) || a.name.localeCompare(b.name));
@@ -96,17 +92,17 @@ export default function OverviewProtection({onManage, onCreate, onConnection}: P
   const other = (rules?.length || 0) - rows.length;
   return <section className="panel overview-protection" aria-label="Alert coverage" aria-busy={loading}>
     <div className="protection-heading">
-      <div className="protection-title"><span className="protection-mark"><ShieldCheck size={20}/></span><div><h2>Your alert coverage</h2><p>Saved rules watch your CPU, memory and disks automatically when enabled.</p></div></div>
+      <div className="protection-title"><span className="protection-mark"><ShieldCheck size={20}/></span><div><h2>Your alert coverage</h2><p>Your essential CPU, memory and main-disk alerts. Open Manage alerts for all protections.</p></div></div>
       <div className="protection-actions"><button className="icon-button" aria-label="Refresh alert coverage" disabled={loading} onClick={() => setRetry(value => value + 1)}><RefreshCw size={15}/></button><button className="secondary compact" onClick={onManage}><SlidersHorizontal size={14}/>Manage alerts</button><button className="primary compact" onClick={onCreate}><Plus size={14}/>Add custom rule</button></div>
     </div>
-    <div className="protection-summary"><span className="protection-count">{rules ? <><strong>{enabled}</strong> of {rows.length} rules enabled</> : loading ? 'Loading saved rules…' : 'Rule status unavailable'}</span><span>Local detection · no AI needed</span></div>
+    <div className="protection-summary"><span className="protection-count">{rules ? <><strong>{enabled}</strong> of {rows.length} essential rules enabled</> : loading ? 'Loading saved rules…' : 'Rule status unavailable'}</span><span>Local detection · no AI needed</span></div>
     {error ? <div className="protection-empty" role="alert">{error}</div> : !rules ? <p className="protection-empty">Loading your saved alert rules…</p> : !rows.length ? <div className="protection-empty"><strong>No CPU, memory or disk rules configured.</strong><p>Open Manage alerts to add the rules you want.</p></div> : <div className="protection-table-scroll" tabIndex={0} role="region" aria-label="Scrollable alert rules">
       <table className="protection-table" aria-label="CPU, memory and disk alert rules" aria-describedby="protection-status-note"><thead><tr><th scope="col">Metric / rule</th><th scope="col">Trigger</th><th scope="col">Severity</th><th scope="col">Status</th></tr></thead><tbody>{rows.map(rule => {
         const metric = metrics[rule.metric];
         const Icon = icons[metric.group];
         return <tr key={rule.id} data-rule-id={rule.id} data-rule-enabled={String(rule.enabled)}>
           <th scope="row"><div className={`protection-metric ${metric.group}`}><Icon size={17}/><div><strong>{metric.label}</strong><span>{rule.name}</span><small>{rule.source === 'host' ? 'This host' : rule.source}</small></div></div></th>
-          <td className="protection-trigger"><strong>{threshold(rule)}</strong><span>{number.format(rule.fraction * 100)}% of {windowLabel(rule.window_seconds)}</span></td>
+          <td className="protection-trigger"><strong>{threshold(rule)}</strong><span>{timingText(rule)}</span></td>
           <td><span className={`protection-severity ${rule.severity === 'critical' ? 'critical' : rule.severity === 'warning' ? 'warning' : 'neutral'}`}><i aria-hidden="true"/>{severity[rule.severity] || rule.severity}</span></td>
           <td><span className={`protection-state ${rule.enabled ? 'enabled' : 'disabled'}`}><span aria-hidden="true">{rule.enabled ? '●' : '○'}</span>{rule.enabled ? 'Enabled' : 'Disabled'}</span></td>
         </tr>;

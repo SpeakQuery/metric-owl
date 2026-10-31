@@ -84,7 +84,7 @@ export default function McpGuide({ onReauthenticate }: { onReauthenticate?: () =
   const currentClient = clients.find(client => client.id === selected);
   return <div className="mcp-onboarding">
     <section className="panel mcp-wizard">
-      <header className="mcp-wizard-heading"><div className="section-icon tone-blue"><PlugZap /></div><div><span className="eyebrow">YOUR SERVER. YOUR AI CLIENT.</span><h2>Connect your AI agent</h2><p>Choose where Metric Owl runs. We’ll prepare the exact configuration for you.</p></div><span className="badge good"><ShieldCheck size={13} /> Read-only</span></header>
+      <header className="mcp-wizard-heading"><div className="section-icon tone-blue"><PlugZap /></div><div><span className="eyebrow">YOUR SERVER. YOUR AI CLIENT.</span><h2>Connect an external AI app</h2><p>Use Codex or another desktop app to read your server through MCP. Provider API keys belong in the AI providers tab.</p></div><span className="badge good"><ShieldCheck size={13} /> Read-only</span></header>
       {error && <div className="notice error" role="alert">{error}</div>}
       {notice && <div className="notice success" role="status"><Check size={17} />{notice}</div>}
       {!metadata ? <div className="mcp-loading"><p>{error ? 'Connection details could not be loaded.' : 'Loading your connection details…'}</p>{error && <button className="secondary" onClick={load}><RefreshCw size={15} /> Try again</button>}</div> : <>

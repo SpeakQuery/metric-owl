@@ -22,7 +22,7 @@ installation monitors its own host; the license permits multiple independent cop
 - Private loopback application behind the installer's public-IP HTTPS panel, with local/SSH access retained. Installers print the actual browser address; existing administrator accounts are preserved.
 - MCP setup wizard for local or SSH stdio. The app creates private client key files and copyable Codex/JSON configuration. Six read tools, scoped access, query bounds and revocation are enforced.
 - Notification relay with local-test, Postmark and authenticated SMTP providers. SMTP requires verified TLS; recipient verification and durable queue remain mandatory. No local mail server is required.
-- Optional OpenAI-compatible/Groq/xAI and Gemini analysis adapters, bounded evidence, daily request budget and cached results. Routine monitoring works without AI.
+- Ten named AI provider presets with a provider-and-key connection form, automatic endpoint/model settings, verified connection before encrypted save, and OpenAI-compatible, Anthropic and Gemini adapters. Bounded evidence, daily request budget and cached results remain. Routine monitoring works without AI. See [AI connections](AI_CONNECTIONS.md).
 - Signed HTTPS webhook integration with target validation; a webhook response cannot trigger server commands.
 - English public product website, illustrative application screenshots and a browser-only server-address connection helper.
 

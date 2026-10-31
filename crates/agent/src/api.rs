@@ -63,6 +63,8 @@ pub fn router(a: App) -> Router {
         .route("/api/v1/inventory", get(inventory))
         .route("/api/v1/settings", get(settings).put(save_settings))
         .route("/api/v1/connections/test", post(connection_test))
+        .route("/api/v1/ai/providers", get(ai_providers))
+        .route("/api/v1/ai/connect", post(ai_connect))
         .route("/api/v1/recipients/start", post(recipient_start))
         .route("/api/v1/recipients/verify", post(recipient_verify))
         .route("/api/v1/notifications", get(notifications))
@@ -591,6 +593,7 @@ struct SettingsBody {
     keys: Option<std::collections::HashMap<String, String>>,
 }
 async fn save_settings(State(a): State<App>, h: HeaderMap, Json(mut b): Json<SettingsBody>) -> Api {
+    let _analysis = a.analysis_lock.lock().await;
     let _config = a.config_lock.lock().await;
     a.auth.require_step_up(&cookie(&h)).await?;
     crate::integrations::validate_settings(&b.settings)?;
@@ -598,6 +601,16 @@ async fn save_settings(State(a): State<App>, h: HeaderMap, Json(mut b): Json<Set
     b.settings.recipient_verified =
         old.recipient_verified && crate::smtp::identity(&old) == crate::smtp::identity(&b.settings);
     let keys = b.keys.unwrap_or_default();
+    let ai_changed = crate::ai::identity(&old) != crate::ai::identity(&b.settings)
+        || keys.get("ai").is_some_and(|key| !key.is_empty());
+    if (old.ai_base_url != b.settings.ai_base_url || old.ai_provider != b.settings.ai_provider)
+        && a.store.get("secret:ai").await?.is_some()
+    {
+        ensure!(
+            keys.get("ai").is_some_and(|key| !key.is_empty()),
+            "Re-enter the AI key when changing the provider"
+        );
+    }
     if (old.smtp_host != b.settings.smtp_host || old.smtp_username != b.settings.smtp_username)
         && a.store.get("secret:smtp").await?.is_some()
     {
@@ -630,6 +643,7 @@ async fn save_settings(State(a): State<App>, h: HeaderMap, Json(mut b): Json<Set
             tx.execute("INSERT INTO kv(key,value) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",params![key,value])?;
         }
         if invalidate {tx.execute("DELETE FROM kv WHERE key='smtp_verification'",[])?;}
+        if ai_changed {tx.execute("DELETE FROM kv WHERE key='ai:verified'",[])?;}
         tx.commit()?;Ok(())
     }).await?;
     *a.settings.write().await = b.settings;
@@ -637,6 +651,20 @@ async fn save_settings(State(a): State<App>, h: HeaderMap, Json(mut b): Json<Set
         .audit("admin".into(), "settings.update".into())
         .await?;
     Ok(Json(json!({"ok":true})))
+}
+async fn ai_providers(State(a): State<App>) -> Api {
+    Ok(Json(crate::ai::status(&a).await?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AiConnectBody {
+    provider: String,
+    #[serde(default)]
+    key: String,
+}
+async fn ai_connect(State(a): State<App>, h: HeaderMap, Json(p): Json<AiConnectBody>) -> Api {
+    a.auth.require_step_up(&cookie(&h)).await?;
+    Ok(Json(crate::ai::connect(&a, &p.provider, &p.key).await?))
 }
 async fn connection_test(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) -> Api {
     let _config = a.config_lock.lock().await;
@@ -658,20 +686,13 @@ async fn connection_test(State(a): State<App>, h: HeaderMap, Json(p): Json<Value
         }
         "ai" => {
             let key = crate::integrations::secret(&a, "ai").await?;
-            let url = if s.ai_provider == "gemini" {
-                "https://generativelanguage.googleapis.com/v1beta/models".into()
-            } else {
-                format!("{}/models", s.ai_base_url.trim_end_matches('/'))
-            };
-            let c = crate::integrations::client_for(&url, false).await?;
-            let req = if s.ai_provider == "gemini" {
-                c.get(url).header("x-goog-api-key", key)
-            } else {
-                c.get(url).bearer_auth(key)
-            };
-            crate::integrations::bounded_json(req.send().await?).await?;
+            ensure!(
+                a.store.budget("ai_connect", 20).await?,
+                "Connection check limit reached. Please try again tomorrow."
+            );
+            crate::ai::generate(&s, &key, "Reply only with OK.", "Connection check", 1200).await?;
             Ok(Json(
-                json!({"ok":true,"message":"API key verified; the model list is accessible. Access to the selected model will be verified on the first analysis."}),
+                json!({"ok":true,"message":"API key and model access verified."}),
             ))
         }
         "webhook" => {
