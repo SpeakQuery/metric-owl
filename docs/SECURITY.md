@@ -1,7 +1,7 @@
 # Security model
 
-The application listener binds only to `127.0.0.1`, including when optional HTTPS
-access is enabled. The guided installer exposes a trusted HTTPS proxy on the
+The application listener binds only to `127.0.0.1`, including behind the default
+guided HTTPS setup. The guided installer exposes a trusted HTTPS proxy on the
 server’s public IPv4 address; the Rust listener remains private. Manual local-only
 installations use loopback or SSH forwarding. Loopback
 Host authorities are strictly validated; write requests require the matching

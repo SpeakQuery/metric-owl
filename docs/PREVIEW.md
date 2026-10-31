@@ -8,7 +8,7 @@ send your machine inventory to GitHub. ARM64 and Windows binaries are not publis
 
 | Platform | Evidence and current limit |
 | --- | --- |
-| Ubuntu 24.04 LTS, x86-64 | Previous full server installation validated. The preview.4 fresh-customer installation, systemd and public-IP certificate acceptance are still pending. |
+| Ubuntu 24.04 LTS, x86-64 | Fresh v0.1.0-preview.5 installation passed on a real server using the exact anonymous GitHub command. The service started, a trusted public-IP certificate was issued on port 8443, and the installer created an account from a username and twice-entered password without a domain, setup key or required MFA. External HTTPS password sign-in, live data and chart rendering passed. |
 | Ubuntu 22.04 and 26.04 LTS, x86-64 | Static binary passed fresh-account creation, password sign-in, SQLite and real-metric reads in isolated userspaces; email defaults off. Full OS/service/certificate installation is not validated. |
 | Debian 12 and 13, x86-64 | Same isolated-userspace application checks passed. Full OS/service/certificate installation is not validated. |
 | Apple Silicon macOS | Development/local application validation; no public installer package. |
@@ -29,8 +29,25 @@ certificate issuance. A short passing test is not a long-term workload guarantee
   may not appear in recognized service groups.
 - A short passing test is not a long-term performance guarantee. Full installations on the additional Linux
   versions, ARM64 server packages, Windows and Kubernetes need validation.
-- HTTPS access is opt-in. MCP still uses local or SSH stdio and requires the
-  appropriate client access; the panel URL is not an HTTP MCP endpoint.
+- The guided installer configures public-IP HTTPS by default. Local-only access
+  remains available. MCP uses local or SSH stdio with separate client access;
+  the panel URL is not an HTTP MCP endpoint.
 
 
-The first public IPv4 installer is prepared for v0.1.0-preview.5. Release acceptance must include a real Ubuntu installation and trusted HTTPS access. Local tests alone do not prove certificate issuance or email delivery.
+The v0.1.0-preview.5 fresh Ubuntu 24.04 installation and trusted-IP certificate
+issuance are validated. External API checks also confirmed secure session cookies,
+unauthenticated-metric rejection and foreign-origin rejection, with email off and
+no provider keys or relay configured. A certificate-renewal dry run against
+Let’s Encrypt staging succeeded, and the server test preserved existing hosted-site
+configuration, certificates and checked routes. This does not establish full installation support on the
+other distributions. Direct SMTP inbox delivery has not been tested; connection
+checks and provider acceptance must not be presented as delivery proof.
+
+The distributed uninstaller passed on Ubuntu 24.04 while preserving the test account
+and history. A second fresh GitHub installation with port 8443 deliberately occupied
+selected 9443; trusted HTTPS, password sign-in, live CPU and SSE passed, and the
+existing 8443 listener remained untouched.
+
+Fresh SSH MCP checks passed for server information, current readings and aligned
+CPU/RAM history; restricted scopes and revoked access were rejected, with no AI
+requests made.

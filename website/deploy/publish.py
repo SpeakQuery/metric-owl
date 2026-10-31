@@ -14,6 +14,14 @@ import subprocess
 import tarfile
 import tempfile
 
+def allowed_public_file(relative, size_bytes):
+    """Keep demo media confined to assets/demo and retain the per-file cap."""
+    allowed = {'.html', '.css', '.js', '.svg', '.jpg', '.jpeg', '.png', '.webp', '.woff2', '.txt', '.xml'}
+    suffix = relative.suffix.lower()
+    demo_media = relative.parts[:2] == ('assets', 'demo') and suffix in {'.mp4', '.gif'}
+    return size_bytes <= 20 * 1024 * 1024 and (suffix in allowed or demo_media)
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--host', required=True)
 parser.add_argument('--control')
@@ -25,14 +33,13 @@ required = ['index.html','404.html','styles.css','site.js','privacy.html','docs/
 for name in required:
     if not (source / name).is_file():
         raise SystemExit(f'Required public file is missing: {name}')
-allowed = {'.html','.css','.js','.svg','.jpg','.jpeg','.png','.webp','.woff2','.txt','.xml'}
 files = []
 for path in sorted(source.rglob('*')):
     relative = path.relative_to(source)
     if path.is_symlink() or any(part.startswith('.') for part in relative.parts):
         raise SystemExit(f'Unsafe public path: {relative}')
     if path.is_file():
-        if path.suffix.lower() not in allowed or path.stat().st_size > 20 * 1024 * 1024:
+        if not allowed_public_file(relative, path.stat().st_size):
             raise SystemExit(f'Unexpected public file: {relative}')
         files.append(path)
 manifest = {str(p.relative_to(source)):hashlib.sha256(p.read_bytes()).hexdigest() for p in files}

@@ -1,12 +1,13 @@
-![Metric Owl — Less watching. More knowing.](website/public/assets/readme-banner.svg)
+![Metric Owl — Your AI Server Analyst. Self-hosted monitoring, read-only MCP and your own AI provider.](website/public/assets/readme-ai-hero.svg)
 
-# Metric Owl
+# Metric Owl · Your AI Server Analyst
 
-**Disk filling up? CPU overloaded? Memory running low?**
-Metric Owl watches your server and helps you understand what needs attention.
-Free, self-hosted monitoring with optional AI insight and read-only MCP.
+**Turn server signals into a conversation you can understand.**
+Watch live performance, catch problems with local rules, and give your AI assistant
+the evidence to explain what changed. Free self-hosted monitoring, optional
+bring-your-own-key AI analysis, and read-only MCP for Codex and other clients.
 
-[Website](https://metricowl.cloud/) · [Setup guide](docs/INSTALLATION.md) · [Preview scope](docs/PREVIEW.md)
+[Website](https://metricowl.cloud/) · [Install](#install-on-your-server) · [AI analysis](#from-an-alert-to-an-explanation) · [MCP](#ask-your-server-a-better-question) · [Preview scope](docs/PREVIEW.md)
 
 ## Install on your server
 
@@ -17,7 +18,8 @@ The script detects your OS locally. [Versions and validation](docs/PREVIEW.md). 
 curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.5/scripts/bootstrap-linux.sh | sudo bash
 ```
 
-1. Choose your administrator username and enter your password twice.
+1. Confirm the detected IP, review and accept the Let’s Encrypt terms, then
+   choose your administrator username and enter your password twice.
 2. Open the printed **`https://YOUR_SERVER_IP:PORT/admin`** address and sign in.
 
 The installer selects **8443**, or **9443 / 10443** if occupied, and prints the exact URL.
@@ -27,63 +29,83 @@ Nothing is installed on your viewing device. Two-factor authentication is option
 
 [Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.5/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
 
-## Less checking. Clearer answers.
+## A watchful companion for your server
 
-- **See the load:** live CPU, RAM, disk, network and process charts.
-- **Hear when it matters:** ready-made alert rules, grouped incidents and optional email reports.
-- **Understand changes:** performance history and evidence around incidents.
-- **Ask your AI:** optional expert analysis and scoped, read-only MCP access.
+- **See it live:** CPU, RAM, disks, network and processes in one dashboard.
+- **Catch it early:** ready-made rules, time-window conditions and grouped incidents.
+- **Understand the history:** compare measurements and inspect incident evidence.
+- **Keep your choices:** use your own AI provider, SMTP account and MCP client.
 
-![Metric Owl dashboard with illustrative data](website/public/assets/dashboard.jpg)
+![System architecture: the browser connects to Metric Owl on your server; local rules and SQLite history remain on that server.](website/public/assets/readme-system.svg)
 
-*Actual application interface. Illustrative data, not access to a live server.*
+Your application, account and monitoring history live on **your server**.
+The public Metric Owl website provides product information; it is not a shared
+monitoring service or customer login.
 
-## Your server, end to end
+## From an alert to an explanation
 
-The application, dashboard, administrator account, metrics and SQLite database
-all run on **your own server**. There is no shared Metric Owl cloud account.
+Local rules handle routine detection without an AI request. When you need a deeper
+explanation, optional AI analysis uses **your provider, model and API key**.
+The result separates observed evidence, possible explanations and suggested checks.
 
-```mermaid
-flowchart LR
-  Browser[Your browser] -->|HTTPS| Panel
-  subgraph Server[Your own server]
-    Panel[Web dashboard and your account] --> Agent[Metric Owl]
-    Agent --> History[(Local SQLite history)]
-    OS[CPU · RAM · disk · logs] --> Agent
-  end
-  Agent -. Optional .-> Email[Your email provider]
-  Agent -. Optional analysis .-> AI[Your AI provider]
-  Client[Your MCP client] -. Authorized read access .-> Agent
-```
+![Incident analysis: local detection and bounded, sanitized evidence lead to optional provider analysis and an explanation. Critical alerts do not wait for AI.](website/public/assets/readme-ai-analysis.svg)
 
-Optional email, AI, MCP and webhooks share only the data needed for the connections
-you enable. The public website has no shared login or dashboard. Open the address
-printed by your installer.
+AI has no permission to execute commands or change your server. Provider limits
+and charges are separate; monitoring continues without an AI connection.
 
-## Bring your own AI assistant
+## Ask your server a better question
 
-Connect from **Setup guide → Set up MCP connection**, then ask:
+Connect **Codex or another MCP-compatible assistant** from
+**Setup guide → Set up MCP connection**. Then try:
 
 > “Show CPU usage over the last 24 hours.”
 >
 > “When did CPU and memory rise together?”
+>
+> “Explain the evidence behind the latest disk alert.”
 
-MCP reads collected history. It cannot run commands or change server settings.
-Routine monitoring works without AI. Monitoring runs while the host and agent are
-online; whole-host outage alerts need an independent monitor.
+![MCP question and answer flow: your assistant requests a permitted tool, Metric Owl reads local evidence through scoped access, and your assistant interprets the returned context.](website/public/assets/readme-mcp.svg)
+
+MCP supplies collected data; **your assistant does the reasoning**. It cannot
+invent missing history, run shell commands or change settings. Each client has
+its own scoped, revocable key. [Connection guide](docs/MCP_CONNECTIONS.md)
+
+## Know where every connection goes
+
+Your browser opens the IP-based HTTPS address printed by your installer.
+Optional AI and email connect to the providers **you configure**. MCP uses a
+separate local or SSH stdio connection.
+
+![Network map: HTTPS proxy to the loopback application, optional SSH MCP, configured outbound AI and SMTP, and TCP 80 for certificate validation.](website/public/assets/readme-network.svg)
 
 <details>
-<summary>More application screens</summary>
+<summary><strong>See the actual application screens</strong></summary>
 
+Actual application interface with illustrative data, not access to a live server.
+
+![Metric Owl dashboard with illustrative data](website/public/assets/dashboard.jpg)
 ![Ready-made alert rules](website/public/assets/rules.jpg)
 ![MCP connection guide](website/public/assets/mcp.jpg)
 ![Light dashboard](website/public/assets/dashboard-light.jpg)
 
 </details>
 
-**Uninstall:** `sudo bash /usr/share/doc/server-guard/uninstall-linux.sh` — your account and history are retained. [Details](docs/OPERATIONS.md#remove-the-application).
+<details>
+<summary><strong>Technical boundaries, removal and further reading</strong></summary>
+
+- Rust agent and API, embedded React dashboard, local SQLite history.
+- Application listener: loopback only. Browser access: the installed HTTPS proxy.
+- MCP: local or SSH stdio, bounded queries, per-client scopes and revocation.
+- AI: optional, sanitized and size-bounded evidence, request budgets, no execution tools.
+- Monitoring needs the host and agent online. Whole-host outage alerts need an independent monitor.
+- Platform support and validation limits are listed in [Preview scope](docs/PREVIEW.md).
+
+**Uninstall:** `sudo bash /usr/share/doc/server-guard/uninstall-linux.sh`.
+Your account and history are retained. [Removal details](docs/OPERATIONS.md#remove-the-application)
 
 [Advanced setup](docs/OPERATIONS.md) · [Email](docs/NOTIFICATIONS.md) · [Security](docs/SECURITY.md) · [Development](docs/DEVELOPMENT.md)
+
+</details>
 
 Official binaries are free under the [binary license](BINARY-LICENSE.txt).
 Public source remains proprietary under [LICENSE](LICENSE), not an open-source license.

@@ -25,6 +25,7 @@ Changes to the transport, SMTP configuration or recipient require recipient
 verification again. TLS certificate validation is required; plaintext SMTP is
 not supported.
 
+Direct SMTP inbox delivery has not yet been tested for this preview.
 A successful connection test is not evidence of delivery. **Provider accepted**
 means the provider accepted the message, not that it arrived in the inbox. Check
 the queue and recipient mailbox separately. No public promise of inbox delivery

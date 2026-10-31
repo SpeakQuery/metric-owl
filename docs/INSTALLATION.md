@@ -17,9 +17,10 @@ checksums, detects the OS and architecture locally, installs the monitoring serv
 and prepares HTTPS access. OS detection does not upload a machine inventory to GitHub.
 [Inspect the script first](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.5/scripts/bootstrap-linux.sh).
 
-## 2. Choose your account
+## 2. Confirm your server and choose your account
 
-Follow the certificate prompts, choose your administrator username, and enter
+Confirm the detected public IP. Review the Let’s Encrypt certificate terms and
+enter `yes` to accept them. Then choose your administrator username and enter
 your password twice. The installer prints the panel address when it finishes.
 Existing installations keep their account, MFA settings and history.
 
