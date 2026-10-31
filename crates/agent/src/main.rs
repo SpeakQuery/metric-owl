@@ -3,13 +3,14 @@ mod auth;
 mod boot;
 mod collect;
 mod diagnostics;
-mod disk_defaults_migration;
 mod discovery;
+mod disk_defaults_migration;
 mod docker_helper;
 mod integrations;
 mod mcp;
 mod probes;
 mod targets;
+mod web_access;
 use clap::{Parser, Subcommand};
 use guard_core::{model::*, store::Store};
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,8 @@ enum Command {
     },
     Doctor,
     ResetSetup,
+    /// Create the first administrator from bounded JSON stdin; MFA can be enabled later.
+    PrepareAdmin,
     ReportJob {
         #[arg(long)]
         id: String,
@@ -99,6 +102,7 @@ pub struct App {
     pub auth: auth::Auth,
     pub dir: PathBuf,
     pub port: u16,
+    pub web_access: web_access::WebAccess,
     pub host: Host,
     pub latest: Arc<RwLock<Option<Sample>>>,
     pub ring: Arc<RwLock<VecDeque<Sample>>>,
@@ -138,6 +142,28 @@ async fn main() -> anyhow::Result<()> {
     }
     let store = Store::open(&cli.data_dir.join("guard.sqlite"))?;
     let auth = auth::Auth::new(store.clone(), &cli.data_dir).await?;
+    if matches!(cli.command, Some(Command::PrepareAdmin)) {
+        use std::io::{IsTerminal, Read};
+        anyhow::ensure!(
+            !std::io::stdin().is_terminal(),
+            "prepare-admin requires JSON through stdin; do not type credentials into a terminal"
+        );
+        let mut bytes = Vec::new();
+        std::io::stdin().take(4097).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() <= 4096, "Enrollment input exceeds 4096 bytes");
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct EnrollmentInput {
+            username: String,
+            password: String,
+        }
+        let input: EnrollmentInput = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow::anyhow!("Expected JSON with username and password"))?;
+        auth.prepare_admin(input.username, input.password, &cli.data_dir)
+            .await?;
+        println!("{{\"configured\":true,\"mfa_required\":false}}");
+        return Ok(());
+    }
     if matches!(cli.command, Some(Command::ResetSetup)) {
         anyhow::ensure!(
             !auth.configured().await?,
@@ -171,6 +197,7 @@ async fn main() -> anyhow::Result<()> {
         Some(Command::Serve { port }) => port,
         _ => 4877,
     };
+    let web_access = web_access::WebAccess::from_env()?;
     // A held exclusive socket prevents two collectors writing the same data directory.
     let ipc = mcp::bind_ipc(&cli.data_dir).await?;
     auth.bootstrap(&cli.data_dir).await?;
@@ -222,6 +249,7 @@ async fn main() -> anyhow::Result<()> {
         auth,
         dir: cli.data_dir,
         port,
+        web_access,
         host,
         latest: Default::default(),
         ring: Default::default(),
@@ -245,7 +273,11 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(targets::run(app.clone()));
     tokio::spawn(integrations::run(app.clone()));
     tokio::spawn(mcp::serve_ipc(ipc, app.clone()));
-    eprintln!("Metric Owl: http://127.0.0.1:{port}/admin (local access only)");
+    if let Some(origin) = app.web_access.public_origin() {
+        eprintln!("Metric Owl: {origin}/admin (authenticated HTTPS proxy)");
+    } else {
+        eprintln!("Metric Owl: http://127.0.0.1:{port}/admin (local access only)");
+    }
     axum::serve(listener, api::router(app))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;

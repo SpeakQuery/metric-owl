@@ -17,6 +17,7 @@ cp LICENSE "$stage/usr/share/doc/server-guard/copyright"
 cp BINARY-LICENSE.txt "$stage/usr/share/doc/server-guard/"
 cp scripts/show-setup.sh "$stage/usr/share/doc/server-guard/show-setup.sh"
 cp scripts/connection-hints.sh "$stage/usr/share/doc/server-guard/connection-hints.sh"
+cp scripts/configure-https.py "$stage/usr/share/doc/server-guard/configure-https.py"
 cp -R artifacts/release/third-party-licenses "$stage/usr/share/doc/server-guard/"
 cat > "$stage/DEBIAN/control" <<CONTROL
 Package: server-guard

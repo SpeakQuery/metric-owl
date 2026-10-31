@@ -322,3 +322,8 @@ This inventory does not replace the original license texts.
 
 The detailed resolved inventory is in `javascript-licenses.json`. IBM Plex is licensed under OFL-1.1.
 ECharts uses Apache-2.0; React, Tailwind, and Vite use MIT. Distinguish runtime and development dependencies when distributing.
+
+Authenticator QR codes are rendered locally with `qrcode.react` 4.2.0 (ISC; bundled
+QR encoder code retains its upstream license). Test-only QR decoding uses `jsqr`
+1.4.0 (Apache-2.0) and `pngjs` 7.0.0 (MIT). Their resolved license texts are included
+by `scripts/collect-licenses.py`; no external QR service receives an enrollment key.

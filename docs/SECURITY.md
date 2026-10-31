@@ -1,19 +1,50 @@
 # Security model
 
-The dashboard listens only on `127.0.0.1`. Host and, when present, Origin must match
-exactly. Write requests require Origin and a session-bound CSRF token. CORS is not
-enabled. The local HTTP cookie is HttpOnly and SameSite=Strict; it does not use the
-`Secure` flag without TLS. Do not expose this endpoint directly through a public
-reverse proxy. Remote access in v1 uses an SSH tunnel with local port 4877 to satisfy
-Host validation. The UI is served only at `/admin` and `/admin/`; `/`,
-`/index.html`, and unknown paths return 404. This path is a usability choice, not
-an authentication boundary. The API keeps its existing authentication checks.
+The application listener binds only to `127.0.0.1`, including when optional HTTPS
+access is enabled. Default access is local or through SSH forwarding. Loopback
+Host authorities are strictly validated; write requests require the matching
+Origin and a session-bound CSRF token. CORS is not enabled. The local HTTP cookie
+is HttpOnly and SameSite=Strict; it does not use `Secure` without TLS.
 
-Installers do not edit Nginx, Apache, virtual hosts, certificate stores, firewall
-rules, or ports 80/443. Linux installation needs root to install the service, but
-the service runs as the restricted `server-guard` account. No public listener is opened.
+An operator may explicitly enable HTTPS browser access by setting
+`GUARD_PUBLIC_ORIGIN` to one exact HTTPS origin and `GUARD_PROXY_TOKEN_FILE` to a
+private proxy-token file. The guided installer creates a password-based administrator account. MFA is
+optional and can be enabled in Security & system. Manual installs retain the one-time key flow;
+knowing the public address alone cannot create an administrator. The reverse proxy terminates trusted TLS, supplies the
+configured Host, overwrites `X-Forwarded-Proto` with `https`, and overwrites
+`X-Guard-Proxy-Token` with the matching private token. Merely forwarding the local
+HTTP endpoint or spoofing forwarded headers does not enable public access. The
+application checks the exact origin/authority and the authenticated proxy headers.
+The proxy must rate-limit authentication requests and keep its token out of client
+responses, request logs and published configuration.
 
-Initial setup uses a 30-minute key in a mode-0600 file; only its hash is held in the
+HTTPS sessions use the separate `__Host-guard_session` cookie with Secure,
+HttpOnly, SameSite=Strict and Path=/, and no Domain attribute. Public and loopback
+cookies are not interchangeable. Authentication, MFA, session expiry and CSRF
+checks remain required. Use the browser panel at `/admin` or `/admin/`; application
+assets are namespaced under `/admin/assets/` and authenticated API calls use
+`/api/v1/`. Unknown paths return 404. The `/admin` path is a usability choice, not
+an authentication boundary. HTTPS dashboard access does not enable HTTP MCP.
+
+The basic service installer does not edit virtual hosts or certificates. The
+optional HTTPS provisioner adds a dedicated Nginx host and certificate after the
+operator selects a hostname; existing virtual-host conflicts fail safely. It does
+not silently replace other sites or open the application port to the network.
+Linux installation needs root to install the service, but the service runs as the
+restricted `server-guard` account. No public application listener is opened.
+
+The guided installer passes administrator credentials through bounded stdin,
+stores an Argon2id password hash, and never puts the password in a command argument
+or logs. New guided installations can sign in immediately using that username
+and password; no setup key or QR enrollment is required. Existing administrators
+and their MFA settings are never replaced by rerunning the installer. Enabling,
+replacing or disabling MFA requires recent reauthentication and revokes all
+sessions. When MFA is enabled, login and reauthentication require a current code
+or a single-use recovery code. Optional QR generation is local; no external QR
+service receives a secret. The UI keeps newly issued recovery codes visible until
+the user confirms saving them, with live requests stopped after session revocation.
+
+Manual initial setup uses a 30-minute key in a mode-0600 file; only its hash is held in the
 database. The installer displays the key in its invoking terminal after readiness;
 it is never printed by the service or placed in a URL. Administrator creation
 removes the file. Existing accounts survive restarts/upgrades and prevent setup
@@ -22,8 +53,9 @@ TOTP uses six digits, 30-second steps, and a ±1-step tolerance; a consumed
 step cannot be reused. Recovery codes are hashed and single-use. Passwords use
 Argon2id (19 MiB, 2 passes, 1 lane). Login attempts are persistently rate-limited.
 Sessions are hashed in the database, expire after 30 minutes of inactivity, and have
-a maximum lifetime of 12 hours. Sensitive settings require password+MFA confirmation
-within the last 5 minutes. Password or MFA rotation revokes all sessions.
+a maximum lifetime of 12 hours. Sensitive settings require password confirmation
+within the last 5 minutes, with a second factor when MFA is enabled. Password or
+MFA changes revoke all sessions.
 
 API keys use AES-256-GCM encryption. `master.key` has mode 0600 and the data directory
 has mode 0700. An attacker controlling the OS account or root can also read the local

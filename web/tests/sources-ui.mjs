@@ -12,7 +12,8 @@ const output = resolve('artifacts/screenshots');
 const mime = { '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.png': 'image/png', '.html': 'text/html' };
 const server = createServer(async (request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
-  const file = pathname === '/admin' ? resolve(root, 'index.html') : resolve(root, '.' + pathname);
+  const assetPath = pathname.startsWith('/admin/assets/') ? pathname.slice('/admin'.length) : pathname;
+  const file = pathname === '/admin' || pathname === '/admin/' ? resolve(root, 'index.html') : resolve(root, '.' + assetPath);
   if (!file.startsWith(root + '/')) { response.writeHead(404).end(); return; }
   try { response.setHeader('Content-Type', mime[extname(file)] || 'application/octet-stream'); response.end(await readFile(file)); }
   catch { response.writeHead(404).end(); }

@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 [[ "$(uname -m)" == x86_64 ]] || { printf 'Only the tested x86-64 preview is packaged.\n' >&2; exit 1; }
 source /etc/os-release
 [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 24.04 ]] || { printf 'This release profile requires Ubuntu 24.04.\n' >&2; exit 1; }
-version="${METRIC_OWL_RELEASE_VERSION:-v0.1.0-preview.2}"
+version="${METRIC_OWL_RELEASE_VERSION:-v0.1.0-preview.3}"
 [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || { printf 'Invalid release version.\n' >&2; exit 1; }
 source_commit="${METRIC_OWL_SOURCE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || true)}"
 [[ "$source_commit" =~ ^[a-f0-9]{40}$ ]] || { printf 'Set METRIC_OWL_SOURCE_COMMIT to the exact reviewed Git commit.\n' >&2; exit 1; }
@@ -18,7 +18,7 @@ mkdir -p "$(dirname "$destination")"
 stage="$(mktemp -d "$(dirname "$destination")/.stage.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 cp artifacts/release/server-guard "$stage/server-guard-linux-amd64"
-cp scripts/bootstrap-linux.sh scripts/install-linux.sh scripts/show-setup.sh scripts/connection-hints.sh "$stage/"
+cp scripts/bootstrap-linux.sh scripts/install-linux.sh scripts/show-setup.sh scripts/connection-hints.sh scripts/configure-https.py "$stage/"
 cp packaging/systemd/server-guard.service LICENSE BINARY-LICENSE.txt "$stage/"
 python3 - "$stage" "$version" "$source_commit" <<'PY'
 import datetime,json,pathlib,re,subprocess,sys
@@ -36,19 +36,19 @@ with (out/'THIRD-PARTY-NOTICES.txt').open('w') as f:
 symbols=subprocess.check_output(['readelf','--version-info','artifacts/release/server-guard'],text=True)
 versions=set(re.findall(r'GLIBC_(\d+(?:\.\d+)+)',symbols))
 required=max(versions,key=lambda v:tuple(map(int,v.split('.')))) if versions else None
-metadata={'product':'Metric Owl','version':version,'source_commit':commit,'binary':'server-guard-linux-amd64','os':'ubuntu','os_version':'24.04','architecture':'x86_64','glibc_symbols_required':required,'built_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'distribution':'private preview','not_validated':['Debian 12','Linux ARM64','Windows'],'license':'BINARY-LICENSE.txt'}
+metadata={'product':'Metric Owl','version':version,'source_commit':commit,'binary':'server-guard-linux-amd64','os':'ubuntu','os_version':'24.04','architecture':'x86_64','glibc_symbols_required':required,'built_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'distribution':'public preview','not_validated':['Debian 12','Linux ARM64','Windows'],'license':'BINARY-LICENSE.txt'}
 (out/'release-metadata.json').write_text(json.dumps(metadata,indent=2)+'\n')
 PY
 bundle="$stage/metric-owl-$version-ubuntu24.04-amd64"
 mkdir -p "$bundle/scripts" "$bundle/packaging/systemd" "$bundle/release"
-cp "$stage/install-linux.sh" "$stage/show-setup.sh" "$stage/connection-hints.sh" "$bundle/scripts/"
+cp "$stage/install-linux.sh" "$stage/show-setup.sh" "$stage/connection-hints.sh" "$stage/configure-https.py" "$bundle/scripts/"
 cp "$stage/server-guard.service" "$bundle/packaging/systemd/"
 cp "$stage/server-guard-linux-amd64" "$bundle/release/server-guard"
 cp "$stage/LICENSE" "$stage/BINARY-LICENSE.txt" "$stage/THIRD-PARTY-NOTICES.txt" "$bundle/release/"
 (cd "$bundle/release" && sha256sum server-guard > SHA256SUMS)
 tar -czf "$stage/metric-owl-$version-ubuntu24.04-amd64.tar.gz" -C "$stage" "$(basename "$bundle")"
 rm -rf "$bundle"
-(cd "$stage" && sha256sum server-guard-linux-amd64 bootstrap-linux.sh install-linux.sh show-setup.sh connection-hints.sh server-guard.service LICENSE BINARY-LICENSE.txt THIRD-PARTY-NOTICES.txt release-metadata.json "metric-owl-$version-ubuntu24.04-amd64.tar.gz" > SHA256SUMS)
+(cd "$stage" && sha256sum server-guard-linux-amd64 bootstrap-linux.sh install-linux.sh show-setup.sh connection-hints.sh configure-https.py server-guard.service LICENSE BINARY-LICENSE.txt THIRD-PARTY-NOTICES.txt release-metadata.json "metric-owl-$version-ubuntu24.04-amd64.tar.gz" > SHA256SUMS)
 mv "$stage" "$destination"
 trap - EXIT
-printf 'Private preview package staged at %s. Nothing has been uploaded or published.\n' "$destination"
+printf 'Preview package staged at %s. Nothing has been uploaded or published.\n' "$destination"

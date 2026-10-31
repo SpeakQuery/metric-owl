@@ -1,28 +1,99 @@
 # Install Metric Owl
 
-The current preview repository and release assets are private. There is no anonymous download command yet. The first packaged target is Ubuntu 24.04 LTS on x86-64; Debian 12 and ARM64 are not supported by this binary.
+The public preview supports Ubuntu 24.04 LTS on x86-64. Debian 12 and ARM64 are
+not supported by this binary. Application binaries are free under BINARY-LICENSE.txt;
+the source is published for inspection under LICENSE.
 
-## Private GitHub installation
+## One-command installation
 
-On your own computer, authenticate GitHub CLI with an account that can read the repository. Use an existing authorized SSH connection to the target server. From a reviewed checkout, run:
+Connect to the server with SSH, then run this **on the server**:
 
-    python3 scripts/install-private-release.py --host root@YOUR_SERVER_IP
+```bash
+curl -fsSL https://metricowl.cloud/install.sh | sudo bash
+```
 
-The default repository is SpeakQuery/metric-owl and version is v0.1.0-preview.2. Use --port for a different SSH port or --control for an existing SSH control socket. GitHub authentication stays on your computer. The server receives short-lived asset URLs over encrypted SSH input, downloads directly from GitHub, verifies checksums and source metadata, and installs the application. No GitHub token is written to the server.
+The script downloads the pinned `v0.1.0-preview.3` release, verifies checksums,
+installs the service and bundled panel, and offers HTTPS setup. Choose an
+administrator username and password in the installer. Supply a dedicated hostname
+you control whose DNS points to the server, then review the certificate terms
+when prompted. The installer does not silently accept terms or overwrite
+existing virtual hosts. When complete it prints the exact panel URL. Open it, enter the credentials you
+just chose, and start monitoring. This guided flow does not require a setup key
+or an authenticator. Optional two-factor authentication can be enabled later in
+**Security & system**.
+
+The same versioned script can be inspected or downloaded from GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.3/scripts/bootstrap-linux.sh | sudo bash
+```
+
+For local-only installation, set `GUARD_CONFIGURE_HTTPS=0` for the installer:
+
+```bash
+curl -fsSL https://metricowl.cloud/install.sh | sudo env GUARD_CONFIGURE_HTTPS=0 bash
+```
+
+With HTTPS configured, open the printed `https://YOUR_PANEL_HOST/admin` address
+from any computer or phone. No viewer-side installation or SSH tunnel is required.
+An existing HTTPS configuration is preserved on upgrade; the installer prints its
+saved panel URL again.
 
 ## Open the control center
 
-The installer prints the initial setup key, connection details and a complete tunnel command. Run the printed SSH command on your own computer, keeping that terminal open. A typical command is:
+If you chose local-only access, or need an SSH fallback, run the printed tunnel command on your own computer and keep that terminal open. This forwards the browser connection; it does not install another server. A typical command is:
 
     ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:14877:127.0.0.1:4877 -p 22 root@YOUR_SERVER_IP
 
 Then open http://127.0.0.1:14877/admin in your browser. The local port differs from the server port so a local Mac installation can remain running.
 
-Create your administrator account using the setup key. Enter your new password twice, configure your authenticator and save the recovery codes. The initial key expires after 30 minutes. Once the account exists, the key is not shown or requested again; subsequent sign-ins use the account and second factor.
+The guided installer creates your administrator account. Sign in with the chosen username and password; enable optional two-factor authentication later if you want it. For a manual installation without prepared credentials, use the one-time setup key, create your password and enroll your authenticator. That manual key expires after 30 minutes. Once the account exists, subsequent sign-ins use your username and password, plus a second factor only when enabled. Existing installations keep their current MFA settings.
 
 If an unused initial key expires, an authorized server administrator can run the application's reset-setup command as the service user, then use the installed show-setup helper. Reset-setup only works before an administrator exists; it is not a password-reset bypass.
 
-The service binds to 127.0.0.1:4877. Installation does not change Nginx, existing domains, certificates, firewall rules, ports 80/443 or other services. The public marketing website is separate from the private control center.
+The application service always binds to 127.0.0.1:4877. Optional HTTPS provisioning adds a dedicated virtual host and certificate; existing virtual hosts are not overwritten. The public product website is separate from each installation’s control center.
+
+## Optional HTTPS browser access
+
+Install Metric Owl once on the machine being monitored. A computer or phone used
+to view its HTTPS panel does not need Metric Owl, Rust, Node.js, a database or an
+SSH tunnel installed. Open the address supplied by the operator, for example
+`https://monitor.example.com/admin`, and sign in with your existing administrator
+account. An authenticator code is requested only if two-factor authentication is enabled.
+
+The installer can provision a dedicated hostname automatically. For an existing reverse proxy, the operator can configure the same protected mode manually:
+
+1. The guided installer creates a password-based administrator account. MFA is
+   optional in Security & system. Manual installations retain the keyed setup
+   option. Existing installations keep their account and MFA.
+2. Choose an HTTPS origin you control, with a valid TLS certificate. Keep the Rust
+   listener on `127.0.0.1:4877` and leave that port closed to the Internet.
+3. Generate a cryptographically random proxy token and store it in a private file
+   readable only by the service account and the trusted reverse proxy. Never
+   publish it, include it in browser URLs or put it into source control.
+4. Set `GUARD_PUBLIC_ORIGIN=https://monitor.example.com` and
+   `GUARD_PROXY_TOKEN_FILE=/private/path/to/proxy-token` in the service environment.
+   The origin contains only the HTTPS scheme and authority, with no `/admin` path.
+5. Configure the existing TLS proxy to forward `/admin`, `/admin/`,
+   `/admin/assets/` and `/api/v1/` to the loopback application. It must overwrite
+   `Host` with the configured authority, `X-Forwarded-Proto` with `https`, and
+   `X-Guard-Proxy-Token` with its private token. Do not pass these values through
+   from a browser. Preserve the browser's Origin header for validation.
+6. Apply authentication rate limits and request-size limits at the proxy. Disable
+   buffering for the live SSE stream, and use the application's security headers
+   rather than incompatible marketing-page CSP rules. Validate the proxy config
+   before reloading it, then test login, MFA, unauthenticated API rejection,
+   cross-origin rejection, logout and live updates.
+
+Automatic HTTPS provisioning requires a dedicated hostname with DNS already pointing to the server. An existing virtual-host conflict requires an explicit operator-managed proxy configuration. A public IP alone
+is not a valid browser HTTPS setup unless it has a trusted certificate matching
+that IP. The product website does not provide a shared account for monitoring
+other customers' machines; each installation has its own administrator account.
+
+After HTTPS is enabled, ordinary sign-ins need only the HTTPS `/admin` URL. The
+one-time setup key is not requested again. SSH access is still available for local
+administration and recovery. MCP remains a separate local or SSH stdio connection;
+the HTTPS panel URL is not an HTTP MCP endpoint.
 
 ## Connection hints and MCP
 
@@ -32,7 +103,7 @@ The installer records only nonsecret SSH host, username and port suggestions in 
 
 ## Manual release bundle
 
-An authorized operator may download the versioned archive and SHA256SUMS from the private release page, verify the archive checksum, then unpack it on the supported server. From the unpacked bundle directory run:
+An operator may download the versioned archive and SHA256SUMS from the public release page, verify the archive checksum, then unpack it on the supported server. From the unpacked bundle directory run:
 
     sudo bash scripts/install-linux.sh release
 

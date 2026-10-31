@@ -1,10 +1,11 @@
+import jsQR from 'jsqr';import {PNG} from 'pngjs';
 import{test,expect}from'@playwright/test';import{readFile,mkdir}from'node:fs/promises';import{createHmac}from'node:crypto';
 function totp(secret:string){const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits='';for(const char of secret.replace(/=/g,''))bits+=alphabet.indexOf(char).toString(2).padStart(5,'0');const bytes=Buffer.from(bits.match(/.{8}/g)!.map(x=>parseInt(x,2)));const counter=Buffer.alloc(8);counter.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));const hash=createHmac('sha1',bytes).update(counter).digest();const off=hash[19]&15;return((hash.readUInt32BE(off)&0x7fffffff)%1000000).toString().padStart(6,'0')}
 test('real agent: secure setup, live monitoring, rule packs, and connections',async({page,request})=>{
  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
  await mkdir('../artifacts/screenshots',{recursive:true});for(const path of ['/','/index.html','/login','/anything']){const r=await request.get(path);expect(r.status()).toBe(404);expect(await r.text()).not.toContain('Metric Owl')}await page.goto('/admin');await expect(page.locator('html')).toHaveAttribute('lang','en');await expect(page).toHaveTitle('Metric Owl • Control Center');await expect(page.getByRole('heading',{name:'Put your guard on duty'})).toBeVisible();await expect(page.getByRole('img',{name:'An AI guardian watching a computer and server health metrics'})).toBeVisible();await expect.poll(()=>page.locator('.auth-illustration img').evaluate((img:HTMLImageElement)=>img.complete&&img.naturalWidth>0)).toBe(true);await page.screenshot({path:'../artifacts/screenshots/setup-english.png',fullPage:true,animations:'disabled'});
  await page.setViewportSize({width:390,height:844});await expect(page.locator('.auth-mobile-ai')).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.screenshot({path:'../artifacts/screenshots/setup-english-mobile.png',fullPage:true,animations:'disabled'});await page.setViewportSize({width:1280,height:720});
- const key=(await readFile('../.test-data/browser/setup-key','utf8')).trim();await page.getByLabel('Setup key',{exact:true}).fill(key);await page.getByLabel('Username',{exact:true}).fill('admin');await page.getByLabel('Create password',{exact:true}).fill('Secure-test-passphrase-2026');await page.getByLabel('Confirm password',{exact:true}).fill('Different-test-passphrase-2026');await page.getByRole('button',{name:'Create account'}).click();await expect(page.getByRole('alert')).toContainText('Passwords do not match');await page.getByLabel('Confirm password',{exact:true}).fill('Secure-test-passphrase-2026');await page.getByRole('button',{name:'Create account'}).click();await expect(page.getByRole('heading',{name:'Your second layer of security'})).toBeVisible();const secret=await page.locator('.totp-box code').innerText();await page.getByLabel('Verification or recovery code').fill(totp(secret));await page.getByRole('button',{name:'Verify and finish'}).click();await expect(page.getByRole('heading',{name:'Your recovery codes'})).toBeVisible();const recovery=await page.locator('.recovery-codes code').first().innerText();await page.getByRole('button',{name:'Saved, continue to sign in'}).click();await page.getByLabel('Password',{exact:true}).fill('Secure-test-passphrase-2026');await page.getByLabel('Verification or recovery code').fill(recovery);await page.getByRole('button',{name:'Secure sign in'}).click();await expect(page.getByRole('heading',{name:'Setup guide',exact:true})).toBeVisible();await page.screenshot({path:'../artifacts/screenshots/setup-guide.png',fullPage:true,animations:'disabled'});await page.getByRole('button',{name:'Set up MCP connection'}).click();
+ const key=(await readFile('../.test-data/browser/setup-key','utf8')).trim();await page.getByLabel('Setup key',{exact:true}).fill(key);await page.getByLabel('Username',{exact:true}).fill('admin');await page.getByLabel('Create password',{exact:true}).fill('Secure-test-passphrase-2026');await page.getByLabel('Confirm password',{exact:true}).fill('Different-test-passphrase-2026');await page.getByRole('button',{name:'Create account'}).click();await expect(page.getByRole('alert')).toContainText('Passwords do not match');await page.getByLabel('Confirm password',{exact:true}).fill('Secure-test-passphrase-2026');await page.getByRole('button',{name:'Create account'}).click();await expect(page.getByRole('heading',{name:'Your second layer of security'})).toBeVisible();await expect(page.getByRole('img',{name:'Authenticator setup QR code',exact:true})).toBeVisible();expect(await page.locator('.authenticator-manual').getAttribute('open')).toBeNull();const qrImage=PNG.sync.read(await page.getByRole('img',{name:'Authenticator setup QR code',exact:true}).screenshot());const qr=jsQR(new Uint8ClampedArray(qrImage.data),qrImage.width,qrImage.height);const setupUri=await page.getByRole('link',{name:'Open in an authenticator app',exact:true}).getAttribute('href');expect(qr?.data).toBe(setupUri);const secret=new URL(qr!.data).searchParams.get('secret')!;await page.locator('.authenticator-manual summary').click();await expect(page.locator('.totp-box code')).toHaveText(secret);await page.getByLabel('Authenticator code',{exact:true}).fill(totp(secret));await page.getByRole('button',{name:'Verify and finish'}).click();await expect(page.getByRole('heading',{name:'Your recovery codes'})).toBeVisible();await expect(page.getByRole('img',{name:'Authenticator setup QR code',exact:true})).toHaveCount(0);const recovery=await page.locator('.recovery-codes code').first().innerText();await page.getByRole('button',{name:'Saved, continue to sign in'}).click();await page.getByLabel('Password',{exact:true}).fill('Secure-test-passphrase-2026');await page.getByLabel('Verification or recovery code').fill(recovery);await page.getByRole('button',{name:'Secure sign in'}).click();await expect(page.getByRole('heading',{name:'Setup guide',exact:true})).toBeVisible();await page.screenshot({path:'../artifacts/screenshots/setup-guide.png',fullPage:true,animations:'disabled'});await page.getByRole('button',{name:'Set up MCP connection'}).click();
  await expect(page.getByRole('heading',{name:'Connect your AI agent',exact:true})).toBeVisible();
  await page.getByLabel('Connection name',{exact:true}).fill('Browser verification');
  const connectionResponse=page.waitForResponse(r=>r.url().endsWith('/api/v1/mcp/clients')&&r.request().method()==='POST');
@@ -47,4 +48,79 @@ test('real agent: secure setup, live monitoring, rule packs, and connections',as
  for(const [navigation,heading] of [['Applications & storage','Disks & available space'],['History','Server history'],['Security & system','Verify sensitive actions'],['Events & logs','Event timeline']]){await page.getByRole('button',{name:navigation,exact:true}).click();await expect(page.getByRole('heading',{name:heading,exact:true})).toBeVisible()}
  await page.getByRole('button',{name:'Live monitoring',exact:true}).click();await expect(page.getByRole('heading',{name:'CPU cores',exact:true})).toBeVisible();await page.getByRole('button',{name:'Pause',exact:true}).click();await expect(page.locator('.status-pill')).toHaveText('Paused');await page.getByRole('button',{name:'Resume',exact:true}).click();await expect(page.locator('.status-pill')).toHaveText('Live data');
  await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Open menu'}).click();await page.getByRole('button',{name:'Overview',exact:true}).click();await expect(page.getByRole('heading',{name:'Overview'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.screenshot({path:'../artifacts/screenshots/overview-mobile.png',fullPage:true,animations:'disabled'});expect(errors).toEqual([]);
+ await page.setViewportSize({width:1280,height:900});await page.getByRole('button',{name:'Security & system',exact:true}).click();await page.getByRole('button',{name:'Set up new authenticator',exact:true}).click();await expect(page.getByRole('img',{name:'Authenticator setup QR code',exact:true})).toBeVisible();const replacementImage=PNG.sync.read(await page.getByRole('img',{name:'Authenticator setup QR code',exact:true}).screenshot());const replacementQR=jsQR(new Uint8ClampedArray(replacementImage.data),replacementImage.width,replacementImage.height);const replacementUri=await page.getByRole('link',{name:'Open in an authenticator app',exact:true}).getAttribute('href');expect(replacementQR?.data).toBe(replacementUri);const replacementSecret=new URL(replacementQR!.data).searchParams.get('secret')!;expect(replacementSecret).not.toBe(secret);await page.getByLabel('Verification code from the new app',{exact:true}).fill(totp(replacementSecret));await page.getByRole('button',{name:'Enable new authenticator',exact:true}).click();await expect(page.getByRole('img',{name:'Authenticator setup QR code',exact:true})).toHaveCount(0);await expect(page.locator('.recovery-codes code')).toHaveCount(10);const replacementRecovery=await page.locator('.recovery-codes code').first().innerText();await page.getByRole('button',{name:'Codes saved, continue to sign in',exact:true}).click();await expect(page.getByRole('heading',{name:'Welcome back',exact:true})).toBeVisible();await page.getByLabel('Password',{exact:true}).fill('Secure-test-passphrase-2026');await page.getByLabel('Verification or recovery code').fill(replacementRecovery);await page.getByRole('button',{name:'Secure sign in'}).click();await expect(page.getByRole('heading',{name:'Security & system',exact:true})).toBeVisible();await expect(page.locator('.status-pill')).toHaveText('Live data');expect(errors).toEqual([]);
+});
+
+test('installer password login with optional authenticator enrollment and removal', async ({page}) => {
+ const {mkdtemp, rm, access} = await import('node:fs/promises');
+ const {tmpdir} = await import('node:os');
+ const {join} = await import('node:path');
+ const {spawn} = await import('node:child_process');
+ const dir = await mkdtemp(join(tmpdir(), 'metricowl-installer-browser-'));
+ const username = 'installer-admin';
+ const password = 'Installer-test-passphrase-2026';
+ let child: ReturnType<typeof spawn> | undefined;
+ try {
+  await new Promise<void>((resolve, reject) => {
+   const prepare = spawn('../target/debug/server-guard', ['--data-dir', dir, 'prepare-admin'], {stdio:['pipe','pipe','pipe']});
+   let result = ''; prepare.stdout.on('data', value => result += value);
+   prepare.on('error', reject); prepare.on('exit', code => {try{expect(code).toBe(0);expect(JSON.parse(result)).toEqual({configured:true,mfa_required:false});resolve()}catch(error){reject(error)}});
+   prepare.stdin.end(JSON.stringify({username,password}));
+  });
+  child = spawn('../target/debug/server-guard', ['--data-dir',dir,'serve','--port','4896'], {stdio:'ignore'});
+  const origin = 'http://127.0.0.1:4896';
+  await expect.poll(async()=>{try{const response=await page.request.get(origin+'/api/v1/auth/status');return await response.json()}catch{return null}}).toMatchObject({configured:true,mfa_required:false});
+  await expect(access(join(dir,'setup-key'))).rejects.toThrow();
+  await page.goto(origin+'/admin');
+  await expect(page.getByRole('heading',{name:'Welcome back',exact:true})).toBeVisible();
+  await expect(page.getByLabel('Setup key',{exact:true})).toHaveCount(0);
+  await expect(page.getByLabel('Confirm password',{exact:true})).toHaveCount(0);
+  await expect(page.getByLabel('Verification or recovery code',{exact:true})).toHaveCount(0);
+  await page.getByLabel('Username',{exact:true}).fill(username);
+  await page.getByLabel('Password',{exact:true}).fill(password);
+  await page.getByRole('button',{name:'Secure sign in',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Setup guide',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Security & system',exact:true}).click();
+  await expect(page.getByText('Optional · Not enabled',{exact:true})).toBeVisible();
+  await expect(page.getByLabel('New verification code',{exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Enable authenticator',exact:true}).click();
+  const qr = page.getByRole('img',{name:'Authenticator setup QR code',exact:true});
+  await expect(qr).toBeVisible();
+  const png = PNG.sync.read(await qr.screenshot());
+  const decoded = jsQR(new Uint8ClampedArray(png.data),png.width,png.height);
+  expect(decoded?.data).toBe(await page.getByRole('link',{name:'Open in an authenticator app',exact:true}).getAttribute('href'));
+  const secret = new URL(decoded!.data).searchParams.get('secret')!;
+  await page.getByLabel('Verification code from the new app',{exact:true}).fill(totp(secret));
+  await page.getByRole('button',{name:'Enable new authenticator',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Save your recovery codes',exact:true})).toBeVisible();
+  await expect(qr).toHaveCount(0);
+  const recovery = await page.locator('.recovery-codes code').allTextContents();
+  expect(recovery).toHaveLength(10);
+  expect(await(await page.request.get(origin+'/api/v1/auth/status')).json()).toMatchObject({configured:true,mfa_required:true,session:null});
+  // Allow several live-stream intervals: session revocation must not hide the one-time codes.
+  await expect(async()=>{await page.waitForTimeout(1500);await expect(page.locator('.recovery-codes code')).toHaveCount(10)}).toPass();
+  await page.getByRole('button',{name:'Codes saved, continue to sign in',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Welcome back',exact:true})).toBeVisible();
+  await page.getByLabel('Username',{exact:true}).fill(username);
+  await page.getByLabel('Password',{exact:true}).fill(password);
+  await page.getByLabel('Verification or recovery code',{exact:true}).fill(recovery[0]);
+  await page.getByRole('button',{name:'Secure sign in',exact:true}).click();
+  await expect(page.getByText('Enabled · TOTP',{exact:true})).toBeVisible();
+  await page.getByLabel('Username',{exact:true}).fill(username);
+  await page.getByLabel('Current password',{exact:true}).fill(password);
+  await page.getByLabel('New verification code',{exact:true}).fill(recovery[1]);
+  await page.getByRole('button',{name:'Verify my identity',exact:true}).click();
+  await expect(page.getByRole('status')).toContainText('Identity verified');
+  await page.getByRole('button',{name:'Turn off two-factor authentication',exact:true}).click();
+  await page.getByRole('button',{name:'Confirm turn off',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Welcome back',exact:true})).toBeVisible();
+  await expect(page.getByLabel('Verification or recovery code',{exact:true})).toHaveCount(0);
+  await page.getByLabel('Username',{exact:true}).fill(username);
+  await page.getByLabel('Password',{exact:true}).fill(password);
+  await page.getByRole('button',{name:'Secure sign in',exact:true}).click();
+  await expect(page.getByText('Optional · Not enabled',{exact:true})).toBeVisible();
+ } finally {
+  if(child&&child.exitCode===null){const exited=new Promise(resolve=>child!.once('exit',resolve));child.kill('SIGTERM');await exited}
+  await rm(dir,{recursive:true,force:true});
+ }
 });

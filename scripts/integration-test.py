@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix='guard-integration-') as temp:
         try:request('auth/setup/begin',{'key':setup,'username':'intruder','password':'integration-password-2026'});raise AssertionError('Completed setup key was reusable')
         except urllib.error.HTTPError as e:assert e.code==400
         summary=subprocess.run(['bash',ROOT/'scripts/show-setup.sh',agent_dir,'local',str(agent_port),str(agent.pid)],check=True,capture_output=True,text=True).stdout
-        assert 'An administrator already exists' in summary and setup not in summary
+        assert 'Your administrator account is ready' in summary and setup not in summary
         renewal=subprocess.run([BIN,'--data-dir',agent_dir,'reset-setup'],capture_output=True,text=True)
         assert renewal.returncode!=0 and not (agent_dir/'setup-key').exists(), 'Configured account allowed setup renewal'
 

@@ -23,11 +23,18 @@ struct Admin {
     secret: String,
     last_step: u64,
     recovery: Vec<String>,
+    #[serde(default = "legacy_mfa_enabled")]
+    mfa_enabled: bool,
 }
 #[derive(Serialize, Deserialize)]
 struct Bootstrap {
     hash: String,
     expires: f64,
+}
+#[derive(Serialize, Deserialize)]
+struct InstallerEnrollment {
+    username: String,
+    password: String,
 }
 #[derive(Serialize, Deserialize)]
 struct Pending {
@@ -106,6 +113,10 @@ impl Auth {
             return Ok(());
         }
         let file = dir.join("setup-key");
+        if self.store.get("installer_pending").await?.is_some() {
+            let _ = std::fs::remove_file(&file);
+            return Ok(());
+        }
         let existing = self
             .store
             .get("bootstrap")
@@ -134,6 +145,107 @@ impl Auth {
     pub async fn configured(&self) -> Result<bool> {
         Ok(self.store.get("admin").await?.is_some())
     }
+    pub async fn mfa_required(&self) -> Result<bool> {
+        self.store
+            .get("admin")
+            .await?
+            .map(|raw| serde_json::from_str::<Admin>(&raw).map(|admin| admin.mfa_enabled))
+            .transpose()
+            .map(|value| value.unwrap_or(false))
+            .map_err(Into::into)
+    }
+    pub async fn enrollment_ready(&self) -> Result<bool> {
+        Ok(!self.configured().await? && self.store.get("installer_pending").await?.is_some())
+    }
+    /// Local installer-only account creation. Credentials arrive through bounded
+    /// stdin. Existing administrators can never be replaced by this command.
+    pub async fn prepare_admin(
+        &self,
+        username: String,
+        password: String,
+        dir: &Path,
+    ) -> Result<()> {
+        let _lock = self.lock.lock().await;
+        ensure!(!self.configured().await?, "An administrator already exists");
+        validate_username(&username)?;
+        validate_password(&password)?;
+        let pending = self.store.get("installer_pending").await?;
+        if let Some(raw) = &pending {
+            let enrollment: InstallerEnrollment = serde_json::from_str(&self.unseal(raw)?)?;
+            ensure!(
+                verify_password(password.clone(), enrollment.password).await?
+                    && constant(&username, &enrollment.username),
+                "Enrollment already exists with different credentials"
+            );
+        }
+        let encoded = tokio::task::spawn_blocking(move || password_hash(&password)).await??;
+        let admin = serde_json::to_string(&Admin {
+            username,
+            password: encoded,
+            secret: String::new(),
+            last_step: 0,
+            recovery: Vec::new(),
+            mfa_enabled: false,
+        })?;
+        self.store.write(move |c| {
+            let tx = c.transaction()?;
+            ensure!(tx.query_row("SELECT COUNT(*) FROM kv WHERE key='admin'", [], |r|r.get::<_,i64>(0))? == 0, "An administrator already exists");
+            let current_pending: Option<String> = tx.query_row("SELECT value FROM kv WHERE key='installer_pending'", [], |r|r.get(0)).optional()?;
+            ensure!(current_pending == pending, "Enrollment changed; run the local installer again");
+            tx.execute("INSERT INTO kv VALUES('admin',?1)", [admin])?;
+            tx.execute("DELETE FROM kv WHERE key IN ('bootstrap','pending_admin','installer_pending','pending_mfa')", [])?;
+            tx.execute("DELETE FROM sessions", [])?;
+            tx.commit()?;
+            Ok(())
+        }).await?;
+        let _ = std::fs::remove_file(dir.join("setup-key"));
+        Ok(())
+    }
+    pub async fn enroll(&self, username: String, password: String) -> Result<serde_json::Value> {
+        let _lock = self.lock.lock().await;
+        self.rate_limit().await?;
+        ensure!(
+            !self.configured().await? && username.len() <= 64 && password.len() <= 256,
+            "Invalid credentials"
+        );
+        let enrolled = self
+            .store
+            .get("installer_pending")
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Invalid credentials"))?;
+        let enrollment: InstallerEnrollment = serde_json::from_str(&self.unseal(&enrolled)?)?;
+        let valid = verify_password(password, enrollment.password.clone()).await?;
+        ensure!(
+            constant(&username, &enrollment.username) && valid,
+            "Invalid credentials"
+        );
+        let secret = Secret::generate_secret().to_encoded().to_string();
+        let uri = make_totp(&secret, &enrollment.username)?.get_url();
+        let key = token();
+        let expires = guard_core::now() + 600.;
+        let pending = self.seal(&serde_json::to_string(&Pending {
+            username: enrollment.username,
+            password: enrollment.password,
+            secret: secret.clone(),
+            expires,
+        })?)?;
+        let bootstrap = serde_json::to_string(&Bootstrap {
+            hash: hash(&key),
+            expires,
+        })?;
+        self.store.write(move |c| {
+            let tx = c.transaction()?;
+            ensure!(tx.query_row("SELECT COUNT(*) FROM kv WHERE key='admin'", [], |r|r.get::<_,i64>(0))? == 0, "Setup is already complete");
+            let current: Option<String> = tx.query_row("SELECT value FROM kv WHERE key='installer_pending'", [], |r|r.get(0)).optional()?;
+            ensure!(current.as_deref() == Some(enrolled.as_str()), "Enrollment has changed; sign in again");
+            for (name,value) in [("bootstrap",bootstrap),("pending_admin",pending)] {
+                tx.execute("INSERT INTO kv VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![name,value])?;
+            }
+            tx.commit()?;
+            Ok(())
+        }).await?;
+        Ok(serde_json::json!({"secret":secret,"uri":uri,"key":key}))
+    }
     async fn check_bootstrap(&self, key: &str) -> Result<()> {
         ensure!(!self.configured().await?, "Setup is already complete");
         let raw = self
@@ -156,14 +268,12 @@ impl Auth {
     ) -> Result<serde_json::Value> {
         let _lock = self.lock.lock().await;
         self.rate_limit().await?;
-        self.check_bootstrap(&key).await?;
         ensure!(
-            (3..=64).contains(&username.len())
-                && username
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || "._-@".contains(c)),
-            "Invalid username"
+            self.store.get("installer_pending").await?.is_none(),
+            "Use your installer credentials to finish setup"
         );
+        self.check_bootstrap(&key).await?;
+        validate_username(&username)?;
         validate_password(&password)?;
         let encoded = tokio::task::spawn_blocking(move || password_hash(&password)).await??;
         let secret = Secret::generate_secret().to_encoded().to_string();
@@ -174,27 +284,29 @@ impl Auth {
             secret: secret.clone(),
             expires: guard_core::now() + 600.,
         };
-        self.store
-            .put(
-                "pending_admin",
-                self.seal(&serde_json::to_string(&pending)?)?,
-            )
-            .await?;
+        let sealed = self.seal(&serde_json::to_string(&pending)?)?;
+        let expected_key = hash(&key);
+        self.store.write(move |c| {
+            let tx = c.transaction()?;
+            ensure!(tx.query_row("SELECT COUNT(*) FROM kv WHERE key IN ('admin','installer_pending')", [], |r|r.get::<_,i64>(0))? == 0, "Setup mode has changed");
+            valid_bootstrap_in_transaction(&tx, &expected_key)?;
+            tx.execute("INSERT INTO kv VALUES('pending_admin',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [sealed])?;
+            tx.commit()?;
+            Ok(())
+        }).await?;
         Ok(serde_json::json!({"secret":secret,"uri":totp.get_url()}))
     }
     pub async fn finish(&self, key: String, code: String, dir: &Path) -> Result<Vec<String>> {
         let _lock = self.lock.lock().await;
         self.rate_limit().await?;
         self.check_bootstrap(&key).await?;
-        let p: Pending = serde_json::from_str(
-            &self.unseal(
-                &self
-                    .store
-                    .get("pending_admin")
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("Setup has not been started"))?,
-            )?,
-        )?;
+        let expected_pending = self
+            .store
+            .get("pending_admin")
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Setup has not been started"))?;
+        let p: Pending = serde_json::from_str(&self.unseal(&expected_pending)?)?;
+        let expected_key = hash(&key);
         ensure!(p.expires > guard_core::now(), "Setup has expired");
         let step = valid_step(&make_totp(&p.secret, &p.username)?, &code, 0)?;
         let codes: Vec<_> = (0..10).map(|_| token()[..20].to_string()).collect();
@@ -204,6 +316,7 @@ impl Auth {
             secret: self.seal(&p.secret)?,
             last_step: step,
             recovery: codes.iter().map(|c| hash(c)).collect(),
+            mfa_enabled: true,
         };
         let json = serde_json::to_string(&a)?;
         self.store
@@ -215,9 +328,19 @@ impl Auth {
                         == 0,
                     "Setup is already complete"
                 );
+                valid_bootstrap_in_transaction(&tx, &expected_key)?;
+                let current_pending: Option<String> = tx
+                    .query_row("SELECT value FROM kv WHERE key='pending_admin'", [], |r| {
+                        r.get(0)
+                    })
+                    .optional()?;
+                ensure!(
+                    current_pending.as_deref() == Some(expected_pending.as_str()),
+                    "Setup changed; start again"
+                );
                 tx.execute("INSERT INTO kv VALUES('admin',?1)", [json])?;
                 tx.execute(
-                    "DELETE FROM kv WHERE key IN ('bootstrap','pending_admin')",
+                    "DELETE FROM kv WHERE key IN ('bootstrap','pending_admin','installer_pending')",
                     [],
                 )?;
                 tx.commit()?;
@@ -256,16 +379,18 @@ impl Auth {
             constant(&username, &a.username) && valid,
             "Invalid credentials"
         );
-        if let Some(i) = a.recovery.iter().position(|h| constant(h, &hash(&code))) {
-            a.recovery.remove(i);
-        } else {
-            a.last_step = valid_step(
-                &make_totp(&self.unseal(&a.secret)?, &a.username)?,
-                &code,
-                a.last_step,
-            )?;
+        if a.mfa_enabled {
+            if let Some(i) = a.recovery.iter().position(|h| constant(h, &hash(&code))) {
+                a.recovery.remove(i);
+            } else {
+                a.last_step = valid_step(
+                    &make_totp(&self.unseal(&a.secret)?, &a.username)?,
+                    &code,
+                    a.last_step,
+                )?;
+            }
+            self.store.put("admin", serde_json::to_string(&a)?).await?;
         }
-        self.store.put("admin", serde_json::to_string(&a)?).await?;
         Ok(a)
     }
     pub async fn login(
@@ -418,12 +543,15 @@ impl Auth {
             .ok_or_else(|| anyhow::anyhow!("Invalid MFA data"))?;
         a.last_step = valid_step(&make_totp(secret, &a.username)?, code, 0)?;
         a.secret = self.seal(secret)?;
+        a.mfa_enabled = true;
         let codes: Vec<_> = (0..10).map(|_| token()[..20].to_owned()).collect();
         a.recovery = codes.iter().map(|s| hash(s)).collect();
         let json = serde_json::to_string(&a)?;
+        let session_hash = hash(session);
         self.store
             .write(move |c| {
                 let tx = c.transaction()?;
+                valid_step_up_in_transaction(&tx, &session_hash)?;
                 tx.execute("UPDATE kv SET value=?1 WHERE key='admin'", [json])?;
                 tx.execute("DELETE FROM kv WHERE key='pending_mfa'", [])?;
                 tx.execute("DELETE FROM sessions", [])?;
@@ -432,6 +560,32 @@ impl Auth {
             })
             .await?;
         Ok(codes)
+    }
+    pub async fn disable_mfa(&self, session: &str) -> Result<()> {
+        let _lock = self.lock.lock().await;
+        self.require_step_up(session).await?;
+        let session_hash = hash(session);
+        self.store
+            .write(move |c| {
+                let tx = c.transaction()?;
+                valid_step_up_in_transaction(&tx, &session_hash)?;
+                let raw: String =
+                    tx.query_row("SELECT value FROM kv WHERE key='admin'", [], |r| r.get(0))?;
+                let mut admin: Admin = serde_json::from_str(&raw)?;
+                admin.mfa_enabled = false;
+                admin.secret.clear();
+                admin.last_step = 0;
+                admin.recovery.clear();
+                tx.execute(
+                    "UPDATE kv SET value=?1 WHERE key='admin'",
+                    [serde_json::to_string(&admin)?],
+                )?;
+                tx.execute("DELETE FROM kv WHERE key='pending_mfa'", [])?;
+                tx.execute("DELETE FROM sessions", [])?;
+                tx.commit()?;
+                Ok(())
+            })
+            .await
     }
     pub async fn change_password(&self, session: &str, password: String) -> Result<()> {
         validate_password(&password)?;
@@ -442,9 +596,11 @@ impl Auth {
             serde_json::from_str(&self.store.get("admin").await?.unwrap_or_default())?;
         a.password = p;
         let json = serde_json::to_string(&a)?;
+        let session_hash = hash(session);
         self.store
             .write(move |c| {
                 let tx = c.transaction()?;
+                valid_step_up_in_transaction(&tx, &session_hash)?;
                 tx.execute("UPDATE kv SET value=?1 WHERE key='admin'", [json])?;
                 tx.execute("DELETE FROM sessions", [])?;
                 tx.commit()?;
@@ -487,6 +643,61 @@ fn valid_step(t: &TOTP, code: &str, last: u64) -> Result<u64> {
     }
     anyhow::bail!("Invalid or previously used verification code")
 }
+fn legacy_mfa_enabled() -> bool {
+    true
+}
+fn valid_step_up_in_transaction(tx: &rusqlite::Transaction<'_>, session_hash: &str) -> Result<()> {
+    let (created, last, step_up): (f64, f64, f64) = tx.query_row(
+        "SELECT created,last,step_up FROM sessions WHERE hash=?1",
+        [session_hash],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    let now = guard_core::now();
+    ensure!(
+        now - created < 43200. && now - last < 1800. && now - step_up <= 300.,
+        "Re-authenticate to change sensitive settings"
+    );
+    Ok(())
+}
+
+fn validate_username(username: &str) -> Result<()> {
+    ensure!(
+        (3..=64).contains(&username.len())
+            && username
+                .chars()
+                .all(|c| c.is_alphanumeric() || "._-@".contains(c)),
+        "Invalid username"
+    );
+    Ok(())
+}
+async fn verify_password(password: String, expected: String) -> Result<bool> {
+    Ok(tokio::task::spawn_blocking(move || {
+        PasswordHash::new(&expected).is_ok_and(|h| {
+            Argon2::default()
+                .verify_password(password.as_bytes(), &h)
+                .is_ok()
+        })
+    })
+    .await?)
+}
+fn valid_bootstrap_in_transaction(
+    tx: &rusqlite::Transaction<'_>,
+    expected_hash: &str,
+) -> Result<()> {
+    let raw: Option<String> = tx
+        .query_row("SELECT value FROM kv WHERE key='bootstrap'", [], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    let bootstrap: Bootstrap =
+        serde_json::from_str(&raw.ok_or_else(|| anyhow::anyhow!("Setup key not found"))?)?;
+    ensure!(
+        bootstrap.expires > guard_core::now() && constant(&bootstrap.hash, expected_hash),
+        "Invalid or expired setup key"
+    );
+    Ok(())
+}
+
 pub fn constant(a: &str, b: &str) -> bool {
     use subtle::ConstantTimeEq;
     a.as_bytes().ct_eq(b.as_bytes()).into()
@@ -551,5 +762,246 @@ mod revocation_regression {
         auth.logout(token).await.unwrap();
         drop(lock);
         assert!(task.await.unwrap().is_err());
+    }
+}
+
+#[cfg(test)]
+mod installer_account_tests {
+    use super::*;
+    const PASSWORD: &str = "installer-password-long-2026";
+    async fn fixture() -> (tempfile::TempDir, Store, Auth) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("guard.sqlite")).unwrap();
+        let auth = Auth::new(store.clone(), dir.path()).await.unwrap();
+        (dir, store, auth)
+    }
+    async fn old_pending(store: &Store, auth: &Auth) {
+        let encoded = password_hash(PASSWORD).unwrap();
+        let raw = auth
+            .seal(
+                &serde_json::to_string(&InstallerEnrollment {
+                    username: "admin".into(),
+                    password: encoded,
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        store.put("installer_pending", raw).await.unwrap();
+    }
+    #[tokio::test]
+    async fn installer_creates_password_only_admin_and_cannot_overwrite_it() {
+        let (dir, store, auth) = fixture().await;
+        auth.bootstrap(dir.path()).await.unwrap();
+        auth.prepare_admin("admin".into(), PASSWORD.into(), dir.path())
+            .await
+            .unwrap();
+        assert!(auth.configured().await.unwrap());
+        assert!(!auth.mfa_required().await.unwrap());
+        assert!(!auth.enrollment_ready().await.unwrap());
+        assert!(!dir.path().join("setup-key").exists());
+        let raw = store.get("admin").await.unwrap().unwrap();
+        assert!(!raw.contains(PASSWORD));
+        let admin: Admin = serde_json::from_str(&raw).unwrap();
+        assert!(admin.password.starts_with("$argon2id$"));
+        assert!(admin.secret.is_empty() && admin.recovery.is_empty());
+        assert!(
+            auth.prepare_admin("other".into(), PASSWORD.into(), dir.path())
+                .await
+                .is_err()
+        );
+        assert_eq!(store.get("admin").await.unwrap(), Some(raw));
+        assert!(
+            auth.login("admin".into(), "wrong".into(), String::new())
+                .await
+                .is_err()
+        );
+        let (token, _) = auth
+            .login("admin".into(), PASSWORD.into(), String::new())
+            .await
+            .unwrap();
+        assert!(auth.session(&token, false).await.is_ok());
+        auth.bootstrap(dir.path()).await.unwrap();
+        assert!(!dir.path().join("setup-key").exists());
+        let reopened = Auth::new(store, dir.path()).await.unwrap();
+        assert!(!reopened.mfa_required().await.unwrap());
+    }
+    #[tokio::test]
+    async fn optional_mfa_enable_disable_require_recent_auth_and_revoke_sessions() {
+        let (dir, store, auth) = fixture().await;
+        auth.prepare_admin("admin".into(), PASSWORD.into(), dir.path())
+            .await
+            .unwrap();
+        let (token, _) = auth
+            .login("admin".into(), PASSWORD.into(), String::new())
+            .await
+            .unwrap();
+        let challenge = auth.begin_mfa_change(&token).await.unwrap();
+        let code = make_totp(challenge["secret"].as_str().unwrap(), "admin")
+            .unwrap()
+            .generate_current()
+            .unwrap();
+        let recovery = auth.finish_mfa_change(&token, &code).await.unwrap();
+        assert!(auth.mfa_required().await.unwrap());
+        assert!(auth.session(&token, false).await.is_err());
+        assert!(
+            auth.login("admin".into(), PASSWORD.into(), String::new())
+                .await
+                .is_err()
+        );
+        let (protected, _) = auth
+            .login("admin".into(), PASSWORD.into(), recovery[0].clone())
+            .await
+            .unwrap();
+        store
+            .write(|c| {
+                c.execute("UPDATE sessions SET step_up=0", [])?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert!(auth.disable_mfa(&protected).await.is_err());
+        assert!(
+            auth.reauth(&protected, "admin".into(), PASSWORD.into(), String::new())
+                .await
+                .is_err()
+        );
+        auth.reauth(
+            &protected,
+            "admin".into(),
+            PASSWORD.into(),
+            recovery[1].clone(),
+        )
+        .await
+        .unwrap();
+        auth.disable_mfa(&protected).await.unwrap();
+        assert!(auth.session(&protected, false).await.is_err());
+        assert!(!auth.mfa_required().await.unwrap());
+        let admin: Admin =
+            serde_json::from_str(&store.get("admin").await.unwrap().unwrap()).unwrap();
+        assert!(admin.secret.is_empty() && admin.recovery.is_empty() && admin.last_step == 0);
+        assert!(store.get("pending_mfa").await.unwrap().is_none());
+        assert!(
+            auth.login("admin".into(), PASSWORD.into(), String::new())
+                .await
+                .is_ok()
+        );
+    }
+    #[tokio::test]
+    async fn legacy_admin_without_flag_keeps_required_mfa() {
+        let (dir, store, auth) = fixture().await;
+        auth.bootstrap(dir.path()).await.unwrap();
+        let key = std::fs::read_to_string(dir.path().join("setup-key")).unwrap();
+        let challenge = auth
+            .begin(key.clone(), "admin".into(), PASSWORD.into())
+            .await
+            .unwrap();
+        let code = make_totp(challenge["secret"].as_str().unwrap(), "admin")
+            .unwrap()
+            .generate_current()
+            .unwrap();
+        let codes = auth.finish(key, code, dir.path()).await.unwrap();
+        let mut raw: serde_json::Value =
+            serde_json::from_str(&store.get("admin").await.unwrap().unwrap()).unwrap();
+        raw.as_object_mut().unwrap().remove("mfa_enabled");
+        store.put("admin", raw.to_string()).await.unwrap();
+        let reopened = Auth::new(store.clone(), dir.path()).await.unwrap();
+        assert!(reopened.mfa_required().await.unwrap());
+        assert!(
+            reopened
+                .login("admin".into(), PASSWORD.into(), String::new())
+                .await
+                .is_err()
+        );
+        assert!(
+            reopened
+                .prepare_admin("admin".into(), PASSWORD.into(), dir.path())
+                .await
+                .is_err()
+        );
+        assert!(
+            reopened
+                .login("admin".into(), PASSWORD.into(), codes[0].clone())
+                .await
+                .is_ok()
+        );
+        assert!(reopened.mfa_required().await.unwrap());
+    }
+    #[tokio::test]
+    async fn old_installer_pending_can_finish_its_existing_mfa_flow() {
+        let (dir, store, auth) = fixture().await;
+        old_pending(&store, &auth).await;
+        auth.bootstrap(dir.path()).await.unwrap();
+        assert!(!dir.path().join("setup-key").exists());
+        assert!(auth.enrollment_ready().await.unwrap());
+        let wrong_password = auth
+            .enroll("admin".into(), "wrong".into())
+            .await
+            .unwrap_err()
+            .to_string();
+        let wrong_username = auth
+            .enroll("unknown".into(), PASSWORD.into())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert_eq!(wrong_password, "Invalid credentials");
+        assert_eq!(wrong_password, wrong_username);
+        let first = auth.enroll("admin".into(), PASSWORD.into()).await.unwrap();
+        let mut bootstrap: Bootstrap =
+            serde_json::from_str(&store.get("bootstrap").await.unwrap().unwrap()).unwrap();
+        bootstrap.expires = 0.;
+        store
+            .put("bootstrap", serde_json::to_string(&bootstrap).unwrap())
+            .await
+            .unwrap();
+        let first_code = make_totp(first["secret"].as_str().unwrap(), "admin")
+            .unwrap()
+            .generate_current()
+            .unwrap();
+        assert!(
+            auth.finish(
+                first["key"].as_str().unwrap().into(),
+                first_code,
+                dir.path()
+            )
+            .await
+            .is_err()
+        );
+        let current = auth.enroll("admin".into(), PASSWORD.into()).await.unwrap();
+        assert_ne!(first["key"], current["key"]);
+        let code = make_totp(current["secret"].as_str().unwrap(), "admin")
+            .unwrap()
+            .generate_current()
+            .unwrap();
+        auth.finish(current["key"].as_str().unwrap().into(), code, dir.path())
+            .await
+            .unwrap();
+        for key in ["bootstrap", "pending_admin", "installer_pending"] {
+            assert!(store.get(key).await.unwrap().is_none());
+        }
+        assert!(auth.mfa_required().await.unwrap());
+    }
+    #[tokio::test]
+    async fn password_only_login_keeps_persistent_attempt_limit() {
+        let (dir, store, auth) = fixture().await;
+        auth.prepare_admin("admin".into(), PASSWORD.into(), dir.path())
+            .await
+            .unwrap();
+        for _ in 0..10 {
+            assert!(
+                auth.login("admin".into(), "wrong".into(), String::new())
+                    .await
+                    .is_err()
+            );
+        }
+        let reopened = Auth::new(store, dir.path()).await.unwrap();
+        assert!(
+            reopened
+                .login("admin".into(), PASSWORD.into(), String::new())
+                .await
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("Too many attempts")
+        );
     }
 }

@@ -58,7 +58,12 @@ for notice in LICENSE BINARY-LICENSE.txt THIRD-PARTY-NOTICES.txt; do
   if [[ -f "$bundle/$notice" ]]; then install -m 644 "$bundle/$notice" "/usr/share/doc/server-guard/$notice"; fi
 done
 install -m 644 "$scripts_dir/show-setup.sh" "$scripts_dir/connection-hints.sh" /usr/share/doc/server-guard/
+if [[ -f "$scripts_dir/configure-https.py" ]]; then install -m 644 "$scripts_dir/configure-https.py" /usr/share/doc/server-guard/; fi
 systemctl daemon-reload
 systemctl enable --now server-guard || rollback
-bash "$scripts_dir/show-setup.sh" /var/lib/server-guard ssh 4877 "$(systemctl show server-guard -p MainPID --value)" || rollback
+if [[ "${GUARD_INSTALL_QUIET:-0}" == 1 ]]; then
+  GUARD_HIDE_SETUP_KEY=1 bash "$scripts_dir/show-setup.sh" /var/lib/server-guard ssh 4877 "$(systemctl show server-guard -p MainPID --value)" >/dev/null || rollback
+else
+  bash "$scripts_dir/show-setup.sh" /var/lib/server-guard ssh 4877 "$(systemctl show server-guard -p MainPID --value)" || rollback
+fi
 trap - ERR

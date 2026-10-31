@@ -39,6 +39,7 @@ pub fn router(a: App) -> Router {
     Router::new()
         .route("/api/v1/auth/status", get(auth_status))
         .route("/api/v1/auth/setup/begin", post(setup_begin))
+        .route("/api/v1/auth/setup/enroll", post(setup_enroll))
         .route("/api/v1/auth/setup/finish", post(setup_finish))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/logout", post(logout))
@@ -46,6 +47,7 @@ pub fn router(a: App) -> Router {
         .route("/api/v1/auth/password", put(password))
         .route("/api/v1/auth/mfa/begin", post(mfa_begin))
         .route("/api/v1/auth/mfa/finish", post(mfa_finish))
+        .route("/api/v1/auth/mfa/disable", post(mfa_disable))
         .route("/api/v1/host", get(host))
         .route("/api/v1/current", get(current))
         .route("/api/v1/forecasts", get(forecasts))
@@ -82,52 +84,92 @@ pub fn router(a: App) -> Router {
         .layer(middleware::from_fn_with_state(a.clone(), guard))
         .with_state(a)
 }
+// The guard normalizes the HTTPS-only cookie before any handler runs. No
+// caller-supplied transport marker is trusted by handlers.
 pub fn cookie(h: &HeaderMap) -> String {
-    h.get("cookie")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| {
-            s.split(';')
-                .find_map(|x| x.trim().strip_prefix("guard_session="))
-        })
-        .unwrap_or("")
-        .into()
+    named_cookie(h, "guard_session").unwrap_or_default()
+}
+fn named_cookie(h: &HeaderMap, name: &str) -> Option<String> {
+    let mut token = None;
+    for value in h.get_all("cookie") {
+        let value = value.to_str().ok()?;
+        for item in value.split(';') {
+            let Some((key, value)) = item.trim().split_once('=') else {
+                continue;
+            };
+            if key == name {
+                if token.is_some() {
+                    return None;
+                }
+                token = Some(value.to_string());
+            }
+        }
+    }
+    token
 }
 fn reject(code: StatusCode, message: &str) -> Response {
     (code, Json(json!({"error":message}))).into_response()
 }
-// SSH forwarding may use a different local port. Keep authorities strictly
-// loopback-only; mutations still require Origin to match this exact authority.
-fn loopback_authority(host: &str) -> bool {
-    let Some((name, port)) = host.rsplit_once(':') else {
-        return false;
-    };
-    ["127.0.0.1", "localhost", "[::1]"].contains(&name)
-        && !port.is_empty()
-        && port.bytes().all(|byte| byte.is_ascii_digit())
-        && port.parse::<u16>().is_ok_and(|number| number > 0)
+fn secured(mut res: Response, mode: crate::web_access::Mode) -> Response {
+    let h = res.headers_mut();
+    h.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
+    h.insert("X-Frame-Options", HeaderValue::from_static("DENY"));
+    h.insert("Cache-Control", HeaderValue::from_static("no-store"));
+    h.insert("Content-Security-Policy",HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"));
+    if mode == crate::web_access::Mode::Https {
+        h.insert(
+            "Strict-Transport-Security",
+            HeaderValue::from_static("max-age=31536000"),
+        );
+        // Login/logout are the only cookie writers. The public cookie is
+        // host-bound and never sent over HTTP or to a sibling subdomain.
+        if let Some(value) = h.get("set-cookie").and_then(|v| v.to_str().ok())
+            && let Some(value) = value.strip_prefix("guard_session=")
+        {
+            let value = format!("__Host-guard_session={value}; Secure");
+            if let Ok(value) = HeaderValue::from_str(&value) {
+                h.insert("set-cookie", value);
+            } else {
+                // Do not fall back to an insecure cookie if encoding fails.
+                h.remove("set-cookie");
+            }
+        }
+    }
+    res
 }
-async fn guard(State(a): State<App>, req: Request, next: Next) -> Response {
-    let host = req
-        .headers()
-        .get("host")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if !loopback_authority(host) {
-        return reject(StatusCode::FORBIDDEN, "Host validation failed");
+async fn guard(State(a): State<App>, mut req: Request, next: Next) -> Response {
+    let mode = match a.web_access.validate(req.headers(), req.method()) {
+        Ok(mode) => mode,
+        Err(message) => {
+            return secured(
+                reject(StatusCode::FORBIDDEN, message),
+                crate::web_access::Mode::Local,
+            );
+        }
+    };
+    if mode == crate::web_access::Mode::Https {
+        let token = named_cookie(req.headers(), "__Host-guard_session");
+        req.headers_mut().remove("cookie");
+        if let Some(token) = token
+            && let Ok(value) = HeaderValue::from_str(&format!("guard_session={token}"))
+        {
+            req.headers_mut().insert("cookie", value);
+        }
     }
-    let origin = req.headers().get("origin").and_then(|v| v.to_str().ok());
-    if origin.is_some_and(|o| o != format!("http://{host}")) {
-        return reject(StatusCode::FORBIDDEN, "Origin validation failed");
-    }
+    secured(authorized_request(a, req, next).await, mode)
+}
+async fn authorized_request(a: App, req: Request, next: Next) -> Response {
     let safe = matches!(*req.method(), Method::GET | Method::HEAD);
-    if !safe && origin.is_none() {
-        return reject(StatusCode::FORBIDDEN, "Origin header required");
-    }
     let path = req.uri().path();
     let public = [
         "/api/v1/auth/status",
         "/api/v1/auth/login",
         "/api/v1/auth/setup/begin",
+        "/api/v1/auth/setup/enroll",
         "/api/v1/auth/setup/finish",
     ]
     .contains(&path);
@@ -149,29 +191,29 @@ async fn guard(State(a): State<App>, req: Request, next: Next) -> Response {
             return reject(StatusCode::FORBIDDEN, "CSRF validation failed");
         }
     }
-    let mut res = next.run(req).await;
-    let h = res.headers_mut();
-    h.insert(
-        "X-Content-Type-Options",
-        HeaderValue::from_static("nosniff"),
-    );
-    h.insert("Referrer-Policy", HeaderValue::from_static("no-referrer"));
-    h.insert("X-Frame-Options", HeaderValue::from_static("DENY"));
-    h.insert("Cache-Control", HeaderValue::from_static("no-store"));
-    h.insert("Content-Security-Policy",HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"));
-    res
+    next.run(req).await
 }
 async fn auth_status(State(a): State<App>, h: HeaderMap) -> Api {
     let session = a.auth.session(&cookie(&h), false).await.ok();
     Ok(Json(
-        json!({"configured":a.auth.configured().await?,"session":session,"process_id":std::process::id()}),
+        json!({"configured":a.auth.configured().await?,"enrollment_ready":a.auth.enrollment_ready().await?,"mfa_required":a.auth.mfa_required().await?,"session":session,"process_id":std::process::id()}),
     ))
 }
 #[derive(Deserialize)]
 struct Credentials {
     username: String,
     password: String,
+    #[serde(default)]
     code: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EnrollmentCredentials {
+    username: String,
+    password: String,
+}
+async fn setup_enroll(State(a): State<App>, Json(p): Json<EnrollmentCredentials>) -> Api {
+    Ok(Json(a.auth.enroll(p.username, p.password).await?))
 }
 #[derive(Deserialize)]
 struct SetupBegin {
@@ -239,6 +281,10 @@ async fn mfa_finish(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) ->
     Ok(Json(
         json!({"recovery_codes":a.auth.finish_mfa_change(&token,p["code"].as_str().unwrap_or("")).await?}),
     ))
+}
+async fn mfa_disable(State(a): State<App>, h: HeaderMap) -> Api {
+    a.auth.disable_mfa(&cookie(&h)).await?;
+    Ok(Json(json!({"ok":true,"mfa_required":false})))
 }
 async fn host(State(a): State<App>) -> Json<Host> {
     Json(a.host)
@@ -771,7 +817,7 @@ async fn revoke_client(State(a): State<App>, h: HeaderMap, Path(id): Path<String
 async fn security(State(a): State<App>) -> Api {
     let sessions=a.store.read(|c|{let mut s=c.prepare("SELECT created,last FROM sessions WHERE created>?1 AND last>?2 ORDER BY created DESC LIMIT 100")?;let now=guard_core::now();Ok(s.query_map(params![now-43200.,now-1800.],|r|Ok(json!({"created":r.get::<_,f64>(0)?,"last":r.get::<_,f64>(1)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)}).await?;
     Ok(Json(
-        json!({"sessions":sessions,"storage_bytes":a.store.size_bytes(),"quota_bytes":a.settings.read().await.quota_bytes,"retention_warning":a.store.get("retention_warning").await?,"errors":*a.errors.read().await,"mfa_required":true,"access":"loopback + SSH","version":env!("CARGO_PKG_VERSION")}),
+        json!({"sessions":sessions,"storage_bytes":a.store.size_bytes(),"quota_bytes":a.settings.read().await.quota_bytes,"retention_warning":a.store.get("retention_warning").await?,"errors":*a.errors.read().await,"mfa_required":a.auth.mfa_required().await?,"access":if a.web_access.public_origin().is_some(){"HTTPS + loopback + SSH"}else{"loopback + SSH"},"version":env!("CARGO_PKG_VERSION")}),
     ))
 }
 async fn revoke_sessions(State(a): State<App>, h: HeaderMap) -> Api {
@@ -791,6 +837,8 @@ async fn asset(req: Request) -> Response {
     let path = req.uri().path();
     let name = match path {
         "/admin" | "/admin/" => "index.html",
+        _ if path.starts_with("/admin/assets/") => &path[7..],
+        // Compatibility for open tabs from an older bundled panel.
         _ if path.starts_with("/assets/") => &path[1..],
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
@@ -808,31 +856,50 @@ async fn asset(req: Request) -> Response {
 }
 
 #[cfg(test)]
-mod authority_tests {
-    use super::loopback_authority;
+mod cookie_tests {
+    use super::*;
     #[test]
-    fn ssh_forwarded_ports_keep_loopback_authorities_only() {
-        for host in [
-            "127.0.0.1:4877",
-            "127.0.0.1:14877",
-            "localhost:22222",
-            "[::1]:14877",
+    fn duplicate_session_cookies_fail_closed() {
+        let mut headers = HeaderMap::new();
+        headers.append("cookie", HeaderValue::from_static("guard_session=one"));
+        headers.append(
+            "cookie",
+            HeaderValue::from_static("other=value; guard_session=two"),
+        );
+        assert_eq!(cookie(&headers), "");
+        headers.clear();
+        headers.insert(
+            "cookie",
+            HeaderValue::from_static("guard_session=one; __Host-guard_session=two"),
+        );
+        assert_eq!(cookie(&headers), "one");
+        assert_eq!(
+            named_cookie(&headers, "__Host-guard_session"),
+            Some("two".into())
+        );
+    }
+    #[test]
+    fn public_session_cookie_is_secure_and_host_bound() {
+        for value in [
+            "guard_session=token; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200",
+            "guard_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
         ] {
-            assert!(loopback_authority(host), "{host}");
+            let mut response = ().into_response();
+            response
+                .headers_mut()
+                .insert("set-cookie", HeaderValue::from_str(value).unwrap());
+            let response = secured(response, crate::web_access::Mode::Https);
+            let cookie = response.headers()["set-cookie"].to_str().unwrap();
+            assert!(cookie.starts_with("__Host-guard_session="));
+            assert!(cookie.ends_with("; Secure"));
+            assert!(cookie.contains("; HttpOnly; SameSite=Strict; Path=/;"));
+            assert!(!cookie.contains("Domain="));
         }
-        for host in [
-            "example.com:4877",
-            "localhost.attacker.com:14877",
-            "user@localhost:14877",
-            "127.0.0.1:0",
-            "127.0.0.1:65536",
-            "127.0.0.1:abc",
-            "127.0.0.1",
-            "::1:14877",
-            "127.0.0.1:80/path",
-            "127.0.0.1:80:90",
-        ] {
-            assert!(!loopback_authority(host), "{host}");
-        }
+        let error = secured(
+            reject(StatusCode::UNAUTHORIZED, "Authentication required"),
+            crate::web_access::Mode::Local,
+        );
+        assert_eq!(error.headers()["cache-control"], "no-store");
+        assert_eq!(error.headers()["x-frame-options"], "DENY");
     }
 }

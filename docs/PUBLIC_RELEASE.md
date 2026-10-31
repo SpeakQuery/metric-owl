@@ -1,6 +1,6 @@
 # Release preparation and visibility
 
-The current repository and release must remain PRIVATE. The owner will decide separately whether and when to make them public. No script or workflow in this repository changes visibility. A successful test is not permission to publish publicly.
+The owner authorized public source and preview binaries for v0.1.0-preview.3. Publication still requires the source/asset audit and anonymous-install checks below. No script or workflow changes repository visibility automatically. Public visibility does not change the proprietary source license.
 
 ## Source review
 
@@ -16,16 +16,16 @@ Collect third-party licenses, then run package-linux-release.sh on Ubuntu 24.04 
 
 The manually triggered validation workflow is bounded to one Ubuntu job. It may upload short-lived private CI artifacts. It does not create releases, publish source, change visibility or install to an operator's server.
 
-## Private release acceptance
+## Preview acceptance before publication
 
-Create a prerelease inside the private repository for the reviewed tag. Upload the versioned binary, bootstrap/install helpers, service unit, metadata, notices, licenses, archive and SHA256SUMS. Verify repository visibility remains private.
+Create a prerelease for the reviewed tag. Upload the versioned binary, bootstrap/install/HTTPS helpers, service unit, metadata, notices, licenses, archive and SHA256SUMS. Record the actual repository visibility and exact commit. Keep earlier release tags and assets immutable.
 
-Use install-private-release.py from the authorized operator's computer. It obtains temporary GitHub asset URLs locally and passes them only through SSH stdin; do not copy a personal access token to the server. The server downloads directly from GitHub and validates every required asset and commit before installation.
+For a private staging release, use install-private-release.py from the authorized operator's computer. It obtains temporary GitHub asset URLs locally and passes them only through SSH stdin; do not copy a personal access token to the server. The server downloads directly from GitHub and validates every required asset and commit before installation.
 
-Verify existing administrator credentials, settings, integration secrets and service drop-ins are preserved. Confirm loopback-only listening, the alternate-port SSH browser tunnel, scoped and revoked MCP client behavior, actual Linux measurements and unchanged existing websites. Measure monitoring overhead separately from builds and test startup; report observation duration and sample limitations.
+Verify existing administrator credentials, settings, integration secrets and service drop-ins are preserved. Confirm loopback-only application listening, the alternate-port SSH fallback, protected HTTPS login and first-time setup, secure session cookies, scoped and revoked MCP client behavior, actual Linux measurements and unchanged existing websites. Measure monitoring overhead separately from builds and test startup; report observation duration and sample limitations.
 
 Do not claim an email was delivered based only on a provider accepting it. Do not claim Mac checks validate Linux. Keep a private HTML validation report with screenshots, measured results and unresolved gaps.
 
-## Later owner-controlled public launch
+## Public launch validation
 
-Only after a separate owner decision may visibility and public download instructions change. Re-audit source and release assets first. Test anonymous release downloads, checksums and installation before advertising a one-line installer. Public source visibility does not change the proprietary source license or grant open-source licensing rights.
+The owner-authorized public launch must use the reviewed source commit and assets. Re-audit source and release assets before changing visibility. Test anonymous release downloads, checksums and installation before advertising the one-command installer. Verify that the website copy matches the actual released platform and access mode. Public source visibility does not change the proprietary source license or grant open-source licensing rights.

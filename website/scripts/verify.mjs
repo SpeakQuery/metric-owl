@@ -54,7 +54,7 @@ try {
     }
     const response=await page.request.get(url.href);assert.equal(response.status(),200,`Broken link ${url}`);
   }
-  for(const path of ['/docs/quick-start.html','/docs/releases.html','/privacy.html']){
+  for(const path of ['/docs/quick-start.html','/docs/advanced.html','/docs/releases.html','/privacy.html']){
     for(const width of [390,1440]){
       await page.setViewportSize({width,height:900});await page.goto(base+path,{waitUntil:'networkidle'});
       assert.equal(await page.locator('h1').count(),1);
@@ -63,6 +63,14 @@ try {
     result.pages.push({path,ok:true});
   }
   await page.goto(base+'/docs/quick-start.html',{waitUntil:'networkidle'});
+  assert.equal(await page.locator('.quick-steps > li').count(),3);
+  assert.equal(await page.locator('input,select').count(),0);
+  await page.context().grantPermissions(['clipboard-read','clipboard-write']);
+  await page.getByRole('button',{name:'Copy command',exact:true}).click();
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://metricowl.cloud/install.sh | sudo bash');
+  await page.screenshot({path:'artifacts/screenshots/website/quick-start-simple.png',fullPage:true,animations:'disabled'});
+  await page.goto(base+'/docs/advanced.html',{waitUntil:'networkidle'});
+  await page.locator('.ssh-fallback summary').click();
   assert.equal(await page.locator('[data-copy="ssh-tunnel"]').isDisabled(),true);
   await page.locator('#server-host').fill('203.0.113.44');
   await page.locator('#server-port').fill('2222');
@@ -97,7 +105,7 @@ try {
   }
   await page.setViewportSize({width:1440,height:1000});
   await page.locator('.connection-builder').screenshot({path:'artifacts/screenshots/website/connection-builder.png'});
-  result.checks.push('live server address command builder','MCP config only for existing UUID','shell injection inputs rejected','no public download claim');
+  result.checks.push('live server address command builder','MCP config only for existing UUID','shell injection inputs rejected','three-step guide with working copy and no connection forms','advanced SSH and MCP guide');
   const thirdParty=requests.filter(url=>!url.startsWith(base+'/'));
   assert.deepEqual(thirdParty,[],'Third-party browser requests');
   assert.deepEqual(errors,[],'Browser errors');

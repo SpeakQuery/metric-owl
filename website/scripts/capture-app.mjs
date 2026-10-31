@@ -10,7 +10,8 @@ const output = resolve('website/public/assets');
 const mime = {'.js':'text/javascript','.css':'text/css','.woff2':'font/woff2','.svg':'image/svg+xml','.png':'image/png','.html':'text/html'};
 const server = createServer(async (req,res) => {
   const path = new URL(req.url,'http://localhost').pathname;
-  const file = path === '/admin' ? resolve(root,'index.html') : resolve(root,'.'+path);
+  const assetPath = path.startsWith('/admin/assets/') ? path.slice('/admin'.length) : path;
+  const file = path === '/admin' || path === '/admin/' ? resolve(root,'index.html') : resolve(root,'.'+assetPath);
   if (!file.startsWith(root+'/')) {res.writeHead(404).end(); return;}
   try { res.setHeader('Content-Type',mime[extname(file)]||'application/octet-stream');res.end(await readFile(file)); }
   catch {res.writeHead(404).end();}

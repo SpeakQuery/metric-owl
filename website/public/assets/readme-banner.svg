@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="500" viewBox="0 0 1360 500" role="img" aria-labelledby="title desc">
+<title id="title">Metric Owl — Less checking. More peace of mind.</title><desc id="desc">Self-hosted server monitoring, ready-made alerts, and optional AI insight. Live metrics, useful history, and read-only MCP.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101d21"/><stop offset="1" stop-color="#182d2b"/></linearGradient><radialGradient id="glow"><stop stop-color="#65c9b7" stop-opacity=".12"/><stop offset="1" stop-color="#65c9b7" stop-opacity="0"/></radialGradient></defs>
+<rect width="1360" height="500" rx="24" fill="url(#bg)"/>
+<circle cx="1110" cy="245" r="330" fill="url(#glow)"/>
+<g fill="none" stroke="#203934" stroke-width="1"><path d="M800 0V500M900 0V500M1000 0V500M1100 0V500M1200 0V500M1300 0V500M760 100H1360M760 200H1360M760 300H1360M760 400H1360"/></g>
+<text x="70" y="70" fill="#8edcca" font-family="Arial,sans-serif" font-size="17" font-weight="700" letter-spacing="4">METRIC OWL</text>
+<rect x="269" y="50" width="42" height="26" rx="6" fill="#edbd9220" stroke="#edbd9270"/><text x="281" y="68" fill="#edbd92" font-family="Arial,sans-serif" font-size="13" font-weight="700">AI</text>
+<text x="65" y="166" fill="#edf3ee" font-family="Arial,sans-serif" font-size="58" font-weight="600" letter-spacing="-2">Less checking.</text>
+<text x="65" y="233" fill="#edf3ee" font-family="Arial,sans-serif" font-size="58" font-weight="600" letter-spacing="-2">More peace of mind.</text>
+<text x="70" y="289" fill="#a5bbb5" font-family="Arial,sans-serif" font-size="21">Your server’s signals. A clear view. Help when it matters.</text>
+<g font-family="Arial,sans-serif" font-size="15" font-weight="600"><rect x="70" y="335" width="155" height="40" rx="20" fill="#8edcca18" stroke="#8edcca50"/><text x="93" y="361" fill="#8edcca">Live monitoring</text><rect x="237" y="335" width="150" height="40" rx="20" fill="#edbd9218" stroke="#edbd9250"/><text x="261" y="361" fill="#edbd92">Clear alerts</text><rect x="399" y="335" width="175" height="40" rx="20" fill="#b9b2ea18" stroke="#b9b2ea50"/><text x="422" y="361" fill="#c5bfee">Optional AI + MCP</text></g>
+<text x="70" y="443" fill="#829e95" font-family="Arial,sans-serif" font-size="14" letter-spacing="2">SELF-HOSTED · RUST + SQLITE · FREE EDITION</text>
+<g transform="translate(865 90)"><rect width="400" height="290" rx="18" fill="#111f22" stroke="#3c5d55"/>
+<circle cx="25" cy="25" r="4" fill="#8edcca"/><text x="39" y="30" fill="#a5bbb5" font-family="Arial,sans-serif" font-size="13">YOUR SERVER, IN PERSPECTIVE</text>
+<g stroke="#29433c" stroke-width="1"><path d="M25 95H375M25 145H375M25 195H375"/></g>
+<path d="M25 175L45 173L65 178L85 164L105 166L125 142L145 144L165 169L185 168L205 137L225 145L245 101L265 116L285 155L305 159L325 148L345 153L375 139" fill="none" stroke="#86d6bf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M25 189L65 187L105 190L145 183L185 185L225 170L265 174L305 167L345 172L375 165" fill="none" stroke="#b9b2ea" stroke-width="3" stroke-linecap="round"/>
+<circle cx="245" cy="101" r="7" fill="#edbd92" stroke="#111f22" stroke-width="3"/>
+<rect x="25" y="227" width="100" height="36" rx="8" fill="#86d6bf10"/><text x="39" y="250" fill="#86d6bf" font-family="Arial,sans-serif" font-size="13">CPU + RAM</text>
+<rect x="136" y="227" width="112" height="36" rx="8" fill="#edbd9210"/><text x="150" y="250" fill="#edbd92" font-family="Arial,sans-serif" font-size="13">Disk + alerts</text>
+<rect x="259" y="227" width="116" height="36" rx="8" fill="#9dbde010"/><text x="272" y="250" fill="#aac9e7" font-family="Arial,sans-serif" font-size="13">Useful history</text></g>
+<text x="1065" y="413" text-anchor="middle" fill="#729087" font-family="Arial,sans-serif" font-size="12">Illustrative signals — your data stays on your server.</text></svg>

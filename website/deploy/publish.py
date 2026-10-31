@@ -32,7 +32,10 @@ for path in sorted(source.rglob('*')):
     if path.is_symlink() or any(part.startswith('.') for part in relative.parts):
         raise SystemExit(f'Unsafe public path: {relative}')
     if path.is_file():
-        if path.suffix.lower() not in allowed or path.stat().st_size > 20 * 1024 * 1024:
+        installer = relative.as_posix() == 'install.sh'
+        if installer and path.read_bytes() != (source.parents[1] / 'scripts/bootstrap-linux.sh').read_bytes():
+            raise SystemExit('The public installer must exactly match the reviewed GitHub bootstrap.')
+        if (path.suffix.lower() not in allowed and not installer) or path.stat().st_size > 20 * 1024 * 1024:
             raise SystemExit(f'Unexpected public file: {relative}')
         files.append(path)
 manifest = {str(p.relative_to(source)):hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
