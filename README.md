@@ -4,7 +4,8 @@
 
 **Turn server signals into a conversation you can understand.**
 Watch live performance, catch problems with local rules, and give your AI assistant
-the evidence to explain what changed. Free, self-hosted server monitoring, optional
+the evidence to explain what changed. Free, open-source server monitoring under
+[Apache License 2.0](LICENSE), optional
 bring-your-own-key AI analysis, and read-only MCP for Codex and other clients.
 
 [Website](https://metricowl.cloud/) · [Install](#install-on-your-server) · [AI analysis](#from-an-alert-to-an-explanation) · [MCP](#ask-your-server-a-better-question) · [Preview scope](docs/PREVIEW.md)
@@ -15,7 +16,7 @@ bring-your-own-key AI analysis, and read-only MCP for Codex and other clients.
 The script detects your OS locally. [Versions and validation](docs/PREVIEW.md). Run on your server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.7/scripts/bootstrap-linux.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.8/scripts/bootstrap-linux.sh | sudo bash
 ```
 
 1. Choose your administrator username and enter your password twice.
@@ -28,7 +29,7 @@ Port **80** (Metric Owl certificate validation) and the selected panel port must
 
 Nothing is installed on your viewing device. Two-factor authentication is optional.
 
-[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.7/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
+[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.8/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
 
 ## Watch Metric Owl in 48 seconds
 
@@ -119,6 +120,12 @@ Your account and history are retained. [Removal details](docs/OPERATIONS.md#remo
 
 </details>
 
-Official binaries are free under the [binary license](BINARY-LICENSE.txt).
-Public source remains proprietary under [LICENSE](LICENSE), not an open-source license.
-Optional AI provider fees are the user’s responsibility and are billed separately by the chosen provider.
+## Open source, on your terms
+
+The free edition is licensed under [Apache License 2.0](LICENSE). Each installation
+monitors its own host; you may run independent copies on multiple servers. There is
+no license limit on server count. [Contributions are welcome](CONTRIBUTING.md).
+
+Optional AI provider fees are paid by the user. Email provider charges may also apply.
+Future Pro fleet management and team features are planned for a separate repository;
+Pro is not available yet. Third-party components and media retain their own licenses.

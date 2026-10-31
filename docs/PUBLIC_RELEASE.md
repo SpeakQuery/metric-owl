@@ -1,6 +1,10 @@
 # Release preparation and visibility
 
-The owner authorized public source and preview binaries for v0.1.0-preview.3. Publication still requires the source/asset audit and anonymous-install checks below. No script or workflow changes repository visibility automatically. Public visibility does not change the proprietary source license.
+The owner authorized public source and preview binaries for v0.1.0-preview.3, and
+Apache License 2.0 for the free edition starting with v0.1.0-preview.8. Earlier
+release tags and assets retain their published contents. Publication still requires
+the source/asset audit and anonymous-download checks below. No script or workflow
+changes repository visibility automatically.
 
 ## Source review
 
@@ -12,7 +16,7 @@ Never include artifacts, runtime databases, local/test data, SSH files, provider
 
 Create a reviewed commit with the authenticated repository owner's identity scoped to this repository. Build the Ubuntu artifact from that exact commit, including a freshly built web bundle. Run Rust unit tests and strict clippy, frontend unit/browser checks, API integration and Linux monitoring acceptance. Record the actual platform and any gaps.
 
-Collect third-party licenses, then run package-linux-release.sh on Ubuntu 24.04 x86-64 with METRIC_OWL_SOURCE_COMMIT set to the reviewed 40-character commit and METRIC_OWL_RELEASE_VERSION set to the tag. The packager records GLIBC requirements, refuses to overwrite an existing version directory, emits SHA256SUMS and includes binary-use terms and dependency notices.
+Collect third-party licenses, then run package-linux-release.sh on Ubuntu 24.04 x86-64 with METRIC_OWL_SOURCE_COMMIT set to the reviewed 40-character commit and METRIC_OWL_RELEASE_VERSION set to the tag. The packager records static musl provenance, refuses to overwrite an existing version directory, emits SHA256SUMS and includes the Apache-2.0 license, distribution information and dependency notices.
 
 The manually triggered validation workflow is bounded to one Ubuntu job. It may upload short-lived private CI artifacts. It does not create releases, publish source, change visibility or install to an operator's server.
 
@@ -30,4 +34,10 @@ Do not claim an email was delivered based only on a provider accepting it. Do no
 
 ## Public launch validation
 
-The owner-authorized public launch must use the reviewed source commit and assets. Re-audit source and release assets before changing visibility. Test anonymous release downloads, checksums and installation before advertising the one-command installer. Verify that the website copy matches the actual released platform and access mode. Public source visibility does not change the proprietary source license or grant open-source licensing rights.
+The owner-authorized public launch must use the reviewed source commit and assets.
+Re-audit source and release assets before publication. Test anonymous release
+downloads, checksums and installation before advertising the one-command installer.
+Verify that website copy matches the released platform, access mode and Apache-2.0
+free-edition license. The per-host dashboard is a product capability, not a license
+restriction on installing independent copies. Future Pro features belong in a
+separate repository and must not change the license of this free edition.

@@ -82,7 +82,11 @@ Re-run the installer with a reviewed newer release. It preserves /var/lib/server
 
 If activation fails, the installer attempts to restore the previous executable, main service unit and service state. It does not reverse database migrations; keep an operator-managed backup of the private data directory before major upgrades. Installation failure is reported rather than resetting credentials.
 
-The executable and systemd unit retain the compatibility name server-guard. Official preview binaries may be used without an application license fee under BINARY-LICENSE.txt. Optional external service charges are separate.
+The executable and systemd unit retain the compatibility name server-guard. The free
+edition is open source under [Apache License 2.0](../LICENSE), with third-party notices
+included in the distribution. Independent copies may run on multiple servers; the
+current dashboard monitors the host where that copy is installed. Optional AI and
+email provider charges are separate.
 
 ## Remove the application
 

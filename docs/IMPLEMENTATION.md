@@ -2,8 +2,9 @@
 
 Metric Owl is an English, self-hosted monitoring application. The native Rust agent
 bundles the React control center and stores its history in local SQLite. The current
-release is a **private preview**, not a public production release. Repository visibility
-must remain private until the owner explicitly changes it.
+release is a **public preview**, not a public production release. Starting with
+v0.1.0-preview.8, the free edition is open source under Apache License 2.0. Each
+installation monitors its own host; the license permits multiple independent copies.
 
 ## Working components
 
@@ -17,8 +18,8 @@ must remain private until the owner explicitly changes it.
 - Verified TLS certificate expiry and failure checks. Verification failures do not produce a fabricated expiry date.
 - Scheduled-job reports and deadline/runtime checks. The report command records a job's declared state; it does not execute the job or prove a backup can be restored.
 - Host restart detection after the machine returns. Agent restarts do not masquerade as host reboots. Independent offline detection is reserved for a future external monitor.
-- Password confirmation at initial setup, one-time expiring setup key, Argon2id, required TOTP, recovery codes, expiring sessions, reauthentication, Origin/Host/CSRF checks and revocation.
-- Private loopback dashboard, with alternate local SSH tunnel ports supported. Installers print the actual server connection details when available; existing administrator accounts are preserved.
+- Installer-created username/password account, eight-character password minimum, optional TOTP and recovery codes, Argon2id, expiring sessions, reauthentication, Origin/Host/CSRF checks and revocation. Manual setup retains a one-time key; existing MFA settings are preserved.
+- Private loopback application behind the installer's public-IP HTTPS panel, with local/SSH access retained. Installers print the actual browser address; existing administrator accounts are preserved.
 - MCP setup wizard for local or SSH stdio. The app creates private client key files and copyable Codex/JSON configuration. Six read tools, scoped access, query bounds and revocation are enforced.
 - Notification relay with local-test, Postmark and authenticated SMTP providers. SMTP requires verified TLS; recipient verification and durable queue remain mandatory. No local mail server is required.
 - Optional OpenAI-compatible/Groq/xAI and Gemini analysis adapters, bounded evidence, daily request budget and cached results. Routine monitoring works without AI.
@@ -40,8 +41,8 @@ provider; inbox delivery has not been confirmed.
 
 ## Deliberate preview limits
 
-- Public downloads, Pro, Windows Server, Kubernetes and a multi-server dashboard are not available.
-- The initial Linux artifact targets Ubuntu 24.04 x86-64. Debian 12, Linux ARM64 and other distributions require their own installation tests; an Ubuntu binary is not implicitly compatible with older glibc.
+- Public free-edition downloads are available. Pro, Windows Server, Kubernetes and a central multi-server dashboard are not available. Pro is planned in a separate repository; independent free-edition installations are not restricted.
+- The static musl Linux artifact targets supported Ubuntu / Debian x86-64 userspaces. Full installation and compatibility evidence have different scopes; see [the versioned validation matrix](PREVIEW.md). No Linux ARM64 server package is published.
 - Monitoring only has history collected since installation. The 24-hour MCP acceptance table is a clearly labelled synthetic test, not a claim of 24 hours of real uptime.
 - Rule preview uses the last five minutes of detailed samples. Aggregated averages cannot recreate exact long-window threshold durations.
 - Selected log files provide recent redacted lines, not a full-text archival log search. MCP's log summary is numeric, not an unrestricted file reader.

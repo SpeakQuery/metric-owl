@@ -1,6 +1,7 @@
 # Dependency license inventory
 
-Resolved inventory from Cargo.lock and pnpm-lock.yaml. Application source is proprietary.
+Resolved inventory from Cargo.lock and pnpm-lock.yaml. The free-edition application
+source is licensed under Apache License 2.0; dependencies retain their own licenses.
 Include the relevant upstream LICENSE/NOTICE files in the release package before distribution.
 This inventory does not replace the original license texts.
 
@@ -20,8 +21,12 @@ This inventory does not replace the original license texts.
 | anstyle-wincon | 3.0.11 | MIT OR Apache-2.0 |
 | anyhow | 1.0.104 | MIT OR Apache-2.0 |
 | argon2 | 0.5.3 | MIT OR Apache-2.0 |
+| asn1-rs | 0.7.2 | MIT OR Apache-2.0 |
+| asn1-rs-derive | 0.6.0 | MIT OR Apache-2.0 |
+| asn1-rs-impl | 0.2.0 | MIT/Apache-2.0 |
 | async-stream | 0.3.6 | MIT |
 | async-stream-impl | 0.3.6 | MIT |
+| async-trait | 0.1.92 | MIT OR Apache-2.0 |
 | atomic-waker | 1.1.2 | Apache-2.0 OR MIT |
 | autocfg | 1.5.1 | Apache-2.0 OR MIT |
 | axum | 0.8.9 | MIT |
@@ -61,11 +66,16 @@ This inventory does not replace the original license texts.
 | darling | 0.24.1 | MIT |
 | darling_core | 0.24.1 | MIT |
 | darling_macro | 0.24.1 | MIT |
+| data-encoding | 2.11.1 | MIT |
+| der-parser | 10.0.0 | MIT OR Apache-2.0 |
+| deranged | 0.5.9 | MIT OR Apache-2.0 |
 | digest | 0.10.7 | MIT OR Apache-2.0 |
 | digest | 0.11.3 | MIT OR Apache-2.0 |
 | dispatch2 | 0.3.1 | Zlib OR Apache-2.0 OR MIT |
 | displaydoc | 0.2.7 | MIT OR Apache-2.0 |
 | dyn-clone | 1.0.20 | MIT OR Apache-2.0 |
+| email-encoding | 0.4.2 | MIT OR Apache-2.0 |
+| email_address | 0.2.9 | MIT |
 | equivalent | 1.0.3 | Apache-2.0 OR MIT |
 | errno | 0.3.14 | MIT OR Apache-2.0 |
 | fallible-iterator | 0.3.0 | MIT/Apache-2.0 |
@@ -94,6 +104,7 @@ This inventory does not replace the original license texts.
 | heck | 0.5.0 | MIT OR Apache-2.0 |
 | hex | 0.4.3 | MIT OR Apache-2.0 |
 | hmac | 0.12.1 | MIT OR Apache-2.0 |
+| hostname | 0.4.2 | MIT |
 | http | 1.5.0 | MIT OR Apache-2.0 |
 | http-body | 1.1.0 | MIT |
 | http-body-util | 0.1.5 | MIT |
@@ -122,6 +133,7 @@ This inventory does not replace the original license texts.
 | itoa | 1.0.18 | MIT OR Apache-2.0 |
 | js-sys | 0.3.107 | MIT OR Apache-2.0 |
 | lazy_static | 1.5.1 | MIT OR Apache-2.0 |
+| lettre | 0.11.23 | MIT |
 | libc | 0.2.191 | MIT OR Apache-2.0 |
 | libsqlite3-sys | 0.39.1 | MIT |
 | linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
@@ -134,9 +146,15 @@ This inventory does not replace the original license texts.
 | memchr | 2.8.3 | Unlicense OR MIT |
 | mime | 0.3.17 | MIT OR Apache-2.0 |
 | mime_guess | 2.0.5 | MIT |
+| minimal-lexical | 0.2.1 | MIT/Apache-2.0 |
 | mio | 1.2.4 | MIT |
+| nom | 7.1.3 | MIT |
+| nom | 8.0.0 | MIT |
 | ntapi | 0.4.3 | Apache-2.0 OR MIT |
 | nu-ansi-term | 0.50.3 | MIT |
+| num-bigint | 0.4.8 | MIT OR Apache-2.0 |
+| num-conv | 0.2.2 | MIT OR Apache-2.0 |
+| num-integer | 0.1.47 | MIT OR Apache-2.0 |
 | num-traits | 0.2.19 | MIT OR Apache-2.0 |
 | objc2 | 0.6.5 | MIT |
 | objc2-core-foundation | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
@@ -144,6 +162,7 @@ This inventory does not replace the original license texts.
 | objc2-foundation | 0.3.2 | MIT |
 | objc2-io-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-open-directory | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| oid-registry | 0.8.1 | MIT OR Apache-2.0 |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 |
 | once_cell_polyfill | 1.70.2 | MIT OR Apache-2.0 |
 | opaque-debug | 0.3.1 | MIT OR Apache-2.0 |
@@ -158,12 +177,14 @@ This inventory does not replace the original license texts.
 | pkg-config | 0.3.34 | MIT OR Apache-2.0 |
 | polyval | 0.6.2 | Apache-2.0 OR MIT |
 | potential_utf | 0.1.6 | Unicode-3.0 |
+| powerfmt | 0.2.1 | MIT OR Apache-2.0 |
 | ppv-lite86 | 0.2.21 | MIT OR Apache-2.0 |
 | proc-macro2 | 1.0.107 | MIT OR Apache-2.0 |
 | quinn | 0.11.12 | MIT OR Apache-2.0 |
 | quinn-proto | 0.11.19 | MIT OR Apache-2.0 |
 | quinn-udp | 0.5.16 | MIT OR Apache-2.0 |
 | quote | 1.0.47 | MIT OR Apache-2.0 |
+| quoted_printable | 0.5.2 | 0BSD |
 | r-efi | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
 | r-efi | 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later |
 | rand | 0.10.3 | MIT OR Apache-2.0 |
@@ -191,6 +212,7 @@ This inventory does not replace the original license texts.
 | rust-embed-impl | 8.13.0 | MIT |
 | rust-embed-utils | 8.13.0 | MIT |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT |
+| rusticata-macros | 4.1.0 | MIT/Apache-2.0 |
 | rustix | 1.1.6 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | rustls | 0.23.46 | Apache-2.0 OR ISC OR MIT |
 | rustls-pki-types | 1.15.1 | MIT OR Apache-2.0 |
@@ -225,6 +247,7 @@ This inventory does not replace the original license texts.
 | syn | 2.0.119 | MIT OR Apache-2.0 |
 | syn | 3.0.9 | MIT OR Apache-2.0 |
 | sync_wrapper | 1.0.2 | Apache-2.0 |
+| synstructure | 0.13.2 | MIT |
 | synstructure | 0.14.0 | MIT |
 | sysinfo | 0.40.1 | MIT |
 | tempfile | 3.27.0 | MIT OR Apache-2.0 |
@@ -232,6 +255,9 @@ This inventory does not replace the original license texts.
 | thiserror | 2.0.21 | MIT OR Apache-2.0 |
 | thiserror-impl | 2.0.21 | MIT OR Apache-2.0 |
 | thread_local | 1.1.10 | MIT OR Apache-2.0 |
+| time | 0.3.55 | MIT OR Apache-2.0 |
+| time-core | 0.1.9 | MIT OR Apache-2.0 |
+| time-macros | 0.2.32 | MIT OR Apache-2.0 |
 | tinystr | 0.8.5 | Unicode-3.0 |
 | tinyvec | 1.13.3 | Zlib OR Apache-2.0 OR MIT |
 | tokio | 1.54.1 | MIT |
@@ -306,6 +332,7 @@ This inventory does not replace the original license texts.
 | windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 |
 | wit-bindgen | 0.57.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | writeable | 0.6.4 | Unicode-3.0 |
+| x509-parser | 0.18.1 | MIT OR Apache-2.0 |
 | yoke | 0.8.4 | Unicode-3.0 |
 | yoke-derive | 0.8.4 | Unicode-3.0 |
 | zerocopy | 0.8.63 | BSD-2-Clause OR Apache-2.0 OR MIT |

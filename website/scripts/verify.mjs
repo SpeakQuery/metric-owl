@@ -40,6 +40,11 @@ try {
   assert.equal(await page.getByRole('dialog').isVisible(),true);
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('dialog').isVisible(),false);
+  const licenseAnswer = page.locator('.faq-list details').filter({has:page.getByText('Is the application open source?',{exact:true})});
+  assert.match(await licenseAnswer.textContent(), /Apache License 2\.0/);
+  assert.match(await licenseAnswer.textContent(), /independent installations on multiple servers/);
+  assert.equal((await page.locator('body').textContent()).includes('remains proprietary'),false);
+  result.checks.push('Apache-2.0 free edition and independent-installation copy');
   await page.getByText('Do I need an AI key to use Metric Owl?',{exact:true}).click();
   assert.equal(await page.locator('.faq-list details').first().getAttribute('open'),'');
   result.checks.push('mobile navigation','all screenshot tabs','keyboard tabs','image dialog and Escape','FAQ expand');
@@ -64,10 +69,12 @@ try {
   }
   await page.goto(base+'/docs/quick-start.html',{waitUntil:'networkidle'});
   assert.equal(await page.locator('.quick-steps > li').count(),3);
+  assert.match(await page.locator('.quick-steps').textContent(), /at least 8 characters; no required character types/);
+  assert.match(await page.locator('.quick-steps').textContent(), /installer asks again/);
   assert.equal(await page.locator('input,select').count(),0);
   await page.context().grantPermissions(['clipboard-read','clipboard-write']);
   await page.getByRole('button',{name:'Copy command',exact:true}).click();
-  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.5/scripts/bootstrap-linux.sh | sudo bash');
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.8/scripts/bootstrap-linux.sh | sudo bash');
   await page.screenshot({path:'artifacts/screenshots/website/quick-start-simple.png',fullPage:true,animations:'disabled'});
   await page.goto(base+'/docs/advanced.html',{waitUntil:'networkidle'});
   await page.locator('.ssh-fallback summary').click();

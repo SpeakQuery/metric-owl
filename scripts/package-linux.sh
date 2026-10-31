@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 source /etc/os-release
 [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 24.04 ]] || { echo 'Build this preview package on Ubuntu 24.04.' >&2; exit 1; }
 arch=amd64
-version=0.1.0~preview.7
+version=0.1.0~preview.8
 file artifacts/release/server-guard | grep -q ELF || { echo 'A Linux ELF binary is required.' >&2; exit 1; }
 program_headers="$(readelf -lW artifacts/release/server-guard)"
 dynamic_entries="$(readelf -dW artifacts/release/server-guard)"

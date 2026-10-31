@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One command on the server: curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.7/scripts/bootstrap-linux.sh | sudo bash
+# One command on the server: curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.8/scripts/bootstrap-linux.sh | sudo bash
 # GitHub release and script versions stay pinned. Never bypass checksum validation.
 set -euo pipefail
 set +x
@@ -14,7 +14,7 @@ case "${ID:-}:${VERSION_ID:-}" in
   ubuntu:22.04|ubuntu:24.04|ubuntu:26.04|debian:12|debian:13) ;;
   *) printf 'This preview supports Ubuntu 22.04/24.04/26.04 LTS and Debian 12/13, x86-64.\n' >&2; exit 1 ;;
 esac
-release_url="${GUARD_RELEASE_URL:-https://github.com/SpeakQuery/metric-owl/releases/download/v0.1.0-preview.7}"
+release_url="${GUARD_RELEASE_URL:-https://github.com/SpeakQuery/metric-owl/releases/download/v0.1.0-preview.8}"
 [[ "$release_url" =~ ^https://github\.com/SpeakQuery/metric-owl/releases/download/v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || {
   printf 'GUARD_RELEASE_URL must identify an official, versioned Metric Owl GitHub release.\n' >&2; exit 1;
 }

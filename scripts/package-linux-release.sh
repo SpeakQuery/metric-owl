@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 [[ "$(uname -m)" == x86_64 ]] || { printf 'Only the tested x86-64 preview is packaged.\n' >&2; exit 1; }
 source /etc/os-release
 [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 24.04 ]] || { printf 'This release profile requires Ubuntu 24.04.\n' >&2; exit 1; }
-version="${METRIC_OWL_RELEASE_VERSION:-v0.1.0-preview.7}"
+version="${METRIC_OWL_RELEASE_VERSION:-v0.1.0-preview.8}"
 [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || { printf 'Invalid release version.\n' >&2; exit 1; }
 source_commit="${METRIC_OWL_SOURCE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || true)}"
 [[ "$source_commit" =~ ^[a-f0-9]{40}$ ]] || { printf 'Set METRIC_OWL_SOURCE_COMMIT to the exact reviewed Git commit.\n' >&2; exit 1; }
@@ -39,7 +39,7 @@ with (out/'THIRD-PARTY-NOTICES.txt').open('w') as f:
   f.write('\n'+'='*72+'\n'+str(path.relative_to(root))+'\n'+'='*72+'\n')
   f.write(path.read_text(errors='replace'))
   f.write('\n')
-metadata={'product':'Metric Owl','version':version,'source_commit':commit,'binary':'server-guard-linux-amd64','os':'linux','architecture':'x86_64','libc':'musl','linkage':'static','platforms':['ubuntu-22.04','ubuntu-24.04','ubuntu-26.04','debian-12','debian-13'],'built_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'distribution':'public preview','not_validated':['Linux ARM64','Windows'],'license':'BINARY-LICENSE.txt'}
+metadata={'product':'Metric Owl','version':version,'source_commit':commit,'binary':'server-guard-linux-amd64','os':'linux','architecture':'x86_64','libc':'musl','linkage':'static','platforms':['ubuntu-22.04','ubuntu-24.04','ubuntu-26.04','debian-12','debian-13'],'built_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'distribution':'public preview','not_validated':['Linux ARM64','Windows'],'license':'Apache-2.0','license_file':'LICENSE','binary_license_notice':'BINARY-LICENSE.txt'}
 (out/'release-metadata.json').write_text(json.dumps(metadata,indent=2)+'\n')
 PY
 bundle="$stage/metric-owl-$version-linux-amd64"

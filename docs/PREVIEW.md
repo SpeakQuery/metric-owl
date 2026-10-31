@@ -1,5 +1,15 @@
 # Preview scope
 
+## Free edition and license
+
+Starting with **v0.1.0-preview.8**, the free edition is open source under
+[Apache License 2.0](../LICENSE). Each installation monitors its own host; independent
+copies on multiple servers are allowed without a license server-count limit.
+Optional AI provider fees are paid by the user; email provider charges may also apply.
+Pro fleet management and team workflows are planned for a separate repository and
+are not available yet. The versioned checks below remain evidence for the versions
+tested, not a claim that every subsequent release repeated a full installation.
+
 ## Platform status
 
 The same GitHub installer detects the OS and architecture locally. It accepts
@@ -59,3 +69,12 @@ creation is now first; a uniquely detected public IP is used automatically.
 The application binary is unchanged from preview.5. Installer regression coverage
 is separate from the preview.5 full-host acceptance above; a complete customer
 CloudPanel installation remains to be verified.
+
+## Password policy update: preview.7
+
+The application and bundled dashboard were rebuilt with an eight-character password
+minimum and no character-type requirements. The 256-byte maximum remains. Short or
+mismatched installer passwords are requested again in the same session. Authentication
+and browser regressions checked the seven/eight-character boundary, password changes,
+session revocation and optional MFA. This is separate from the preview.5 full-host
+installation evidence above.

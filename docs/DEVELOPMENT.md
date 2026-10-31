@@ -17,9 +17,10 @@ node web/tests/sources-ui.mjs
 
 The first frontend build supplies the embedded assets for a clean checkout. Rust tests regenerate the shared TypeScript contracts; the final frontend build uses those exact types. Do not edit `web/src/generated` by hand. `scripts/build.sh` creates a local release and collects dependency licenses.
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Security](docs/SECURITY.md)
-- [Notification relay](docs/NOTIFICATIONS.md)
-- [Dependencies and licenses](docs/DEPENDENCIES.md)
-- [Release process and visibility gate](docs/PUBLIC_RELEASE.md)
+- [Contributing under Apache License 2.0](../CONTRIBUTING.md)
+- [Architecture](ARCHITECTURE.md)
+- [Security](SECURITY.md)
+- [Notifications](NOTIFICATIONS.md)
+- [Dependencies and licenses](DEPENDENCIES.md)
+- [Release process and visibility gate](PUBLIC_RELEASE.md)
 
