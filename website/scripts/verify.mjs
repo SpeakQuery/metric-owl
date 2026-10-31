@@ -67,7 +67,7 @@ try {
   assert.equal(await page.locator('input,select').count(),0);
   await page.context().grantPermissions(['clipboard-read','clipboard-write']);
   await page.getByRole('button',{name:'Copy command',exact:true}).click();
-  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.4/scripts/bootstrap-linux.sh | sudo bash');
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.5/scripts/bootstrap-linux.sh | sudo bash');
   await page.screenshot({path:'artifacts/screenshots/website/quick-start-simple.png',fullPage:true,animations:'disabled'});
   await page.goto(base+'/docs/advanced.html',{waitUntil:'networkidle'});
   await page.locator('.ssh-fallback summary').click();

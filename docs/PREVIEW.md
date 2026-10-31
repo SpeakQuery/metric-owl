@@ -33,4 +33,4 @@ certificate issuance. A short passing test is not a long-term workload guarantee
   appropriate client access; the panel URL is not an HTTP MCP endpoint.
 
 
-The first public IPv4 installer is prepared for v0.1.0-preview.4. Release acceptance must include a real Ubuntu installation and trusted HTTPS access. Local tests alone do not prove certificate issuance or email delivery.
+The first public IPv4 installer is prepared for v0.1.0-preview.5. Release acceptance must include a real Ubuntu installation and trusted HTTPS access. Local tests alone do not prove certificate issuance or email delivery.

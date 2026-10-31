@@ -4,8 +4,13 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import pty
+import select
+import signal
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -16,6 +21,70 @@ spec.loader.exec_module(module)
 
 
 class InstallerTests(unittest.TestCase):
+    def test_real_terminal_prompts_with_piped_stdin_and_hidden_passwords(self):
+        # No mocked prompt/getpass: exercise the same controlling-terminal behavior
+        # as curl | sudo bash -> python while stdin is a pipe, not the TTY.
+        script = '''
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('installer', sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+address = m.prompt('Your server public IPv4 address', '8.8.8.8')
+terms = m.prompt('Accept the certificate authority terms? (yes/no)', 'no')
+credentials = m.administrator_credentials()
+assert address == '8.8.8.8' and terms == 'yes'
+assert credentials['username'] == 'terminal-admin'
+assert credentials['password'] == 'Synthetic-terminal-passphrase-814'
+print('TERMINAL_FLOW_OK', flush=True)
+'''
+        read_end, write_end = os.pipe()
+        pid, terminal = pty.fork()
+        if pid == 0:
+            os.close(write_end)
+            os.dup2(read_end, 0)
+            os.close(read_end)
+            os.execv(sys.executable, [sys.executable, '-c', script, str(ROOT / 'scripts/configure-https.py')])
+        os.close(read_end)
+        os.close(write_end)
+        transcript = bytearray()
+        def expect(text):
+            deadline = time.monotonic() + 8
+            while text.encode() not in transcript:
+                remaining = deadline - time.monotonic()
+                self.assertGreater(remaining, 0, 'Timed out waiting for terminal prompt: ' + text)
+                if not select.select([terminal], [], [], remaining)[0]:
+                    continue
+                try:
+                    chunk = os.read(terminal, 8192)
+                except OSError:
+                    self.fail('Terminal closed before expected prompt: ' + text)
+                self.assertTrue(chunk, 'Terminal ended before expected prompt: ' + text)
+                transcript.extend(chunk)
+        reaped = False
+        try:
+            for text, answer in [
+                ('Your server public IPv4 address [8.8.8.8]: ', '\n'),
+                ('Accept the certificate authority terms? (yes/no) [no]: ', 'yes\n'),
+                ('Choose your Metric Owl administrator username [admin]: ', 'terminal-admin\n'),
+                ('Create a password (at least 14 characters): ', 'Synthetic-terminal-passphrase-814\n'),
+                ('Enter the password again: ', 'Synthetic-terminal-passphrase-814\n'),
+            ]:
+                expect(text)
+                os.write(terminal, answer.encode())
+            expect('TERMINAL_FLOW_OK')
+            _, status = os.waitpid(pid, 0)
+            reaped = True
+            self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+            self.assertNotIn(b'Synthetic-terminal-passphrase-814', transcript)
+        finally:
+            os.close(terminal)
+            if not reaped:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                os.waitpid(pid, 0)
+
     def test_admin_prepare_skips_existing_or_ready_account(self):
         for status in [{'configured': True}, {'configured': False, 'enrollment_ready': True}]:
             with self.subTest(status=status), patch.object(module.os, 'geteuid', return_value=0), \

@@ -53,7 +53,9 @@ def administrator_credentials():
     if not re.fullmatch(r'[A-Za-z0-9._@-]{3,64}', username):
         raise ValueError('Use 3–64 letters, digits, dots, underscores, @ or hyphens for your username.')
     try:
-        with open('/dev/tty', 'r+') as terminal:
+        # A terminal is not seekable: Python's buffered r+ stream rejects it.
+        # getpass reads its own controlling terminal and only writes to this stream.
+        with open('/dev/tty', 'w') as terminal:
             with warnings.catch_warnings():
                 warnings.simplefilter('error', getpass.GetPassWarning)
                 password = getpass.getpass('Create a password (at least 14 characters): ', stream=terminal)
@@ -200,10 +202,12 @@ def existing_origin(path=None):
 
 def prompt(text, default=''):
     try:
-        with open('/dev/tty', 'r+') as tty:
-            tty.write(text + (f' [{default}]' if default else '') + ': ')
-            tty.flush()
-            line = tty.readline()
+        # Separate directions avoid BufferedRandom's seek requirement. Reading the
+        # controlling terminal also works when curl | bash occupies standard input.
+        with open('/dev/tty', 'w') as output, open('/dev/tty', 'r') as terminal:
+            output.write(text + (f' [{default}]' if default else '') + ': ')
+            output.flush()
+            line = terminal.readline()
     except OSError:
         raise ValueError('Setup needs your SSH terminal. For deliberate unattended HTTPS setup use '
                          'GUARD_PUBLIC_IP, GUARD_HTTPS_AGREE_TOS=1 and optional GUARD_HTTPS_EMAIL. '
