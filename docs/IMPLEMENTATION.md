@@ -1,59 +1,91 @@
-# Implementation status — October 31, 2026
+# Implementation status — 1 November 2026
 
-Metric Owl is an English, self-hosted monitoring application. The native Rust agent
-bundles the React control center and stores its history in local SQLite. The current
-release is a **public preview**, not a public production release. Starting with
-v0.1.0-preview.8, the free edition is open source under Apache License 2.0. Each
-installation monitors its own host; the license permits multiple independent copies.
+This page describes the **preview.10 source implementation**. Metric Owl remains
+a public preview, not a production-availability guarantee. The native Rust agent
+embeds an English React control center and stores its state/history in local
+SQLite. The Apache-2.0 free edition monitors one host per installation; independent
+copies on multiple servers are permitted. Fleet/team Pro workflows are not available.
 
-## Working components
+For a versioned artifact and its validation, use [Release evidence](PUBLIC_RELEASE.md)
+and [Preview scope](PREVIEW.md). A source change, passing test, published checksum
+and reachable customer installation establish different things.
 
-- Real CPU, per-core CPU, available-memory-based usage, network counters, disks and top processes. Linux user threads are excluded from process counts and service RSS totals.
-- Linux diagnostic readers for swap, memory PSI, CPU I/O wait, OOM counters, block I/O latency/utilization and inode usage. Unsupported, stale and reset counters are unavailable rather than fabricated zeros.
-- Minute history and progressively coarser SQLite aggregates, event evidence, retention pressure and quota reporting.
-- Ready-made CPU, memory, disk and Linux diagnostic rules; editable time windows, recovery and severity. User-deleted diagnostic presets are not recreated on every restart. Small partitions retain percentage rules; the fixed 1 GiB free-space default is seeded only for volumes of at least 10 GiB.
-- Selected log files with redaction and rotation handling; bounded folder scanning; optional Linux service/journal and permission-limited Docker helper sources.
-- Bounded discovery of declared Nginx/Apache hostnames and running service/database engines. Discovery does not enable monitoring automatically or change web configuration.
-- HTTP status, expected text/JSON and response-time checks. DNS and content-check failures produce failure measurements; blocked network destinations remain unavailable. Redirects are not followed.
-- Verified TLS certificate expiry and failure checks. Verification failures do not produce a fabricated expiry date.
-- Scheduled-job reports and deadline/runtime checks. The report command records a job's declared state; it does not execute the job or prove a backup can be restored.
-- Host restart detection after the machine returns. Agent restarts do not masquerade as host reboots. Independent offline detection is reserved for a future external monitor.
-- Installer-created username/password account, eight-character password minimum, optional TOTP and recovery codes, Argon2id, expiring sessions, reauthentication, Origin/Host/CSRF checks and revocation. Manual setup retains a one-time key; existing MFA settings are preserved.
-- Private loopback application behind the installer's public-IP HTTPS panel, with local/SSH access retained. Installers print the actual browser address; existing administrator accounts are preserved.
-- MCP setup wizard for local or SSH stdio. The app creates private client key files and copyable Codex/JSON configuration. Six read tools, scoped access, query bounds and revocation are enforced.
-- Notification relay with local-test, Postmark and authenticated SMTP providers. SMTP requires verified TLS; recipient verification and durable queue remain mandatory. No local mail server is required.
-- Ten named AI provider presets with a provider-and-key connection form, automatic endpoint/model settings, verified connection before encrypted save, and OpenAI-compatible, Anthropic and Gemini adapters. Bounded evidence, daily request budget and cached results remain. Routine monitoring works without AI. See [AI connections](AI_CONNECTIONS.md).
-- Signed HTTPS webhook integration with target validation; a webhook response cannot trigger server commands.
-- English public product website, illustrative application screenshots and a browser-only server-address connection helper.
+## Implemented components
 
-## Verification
+- Real CPU/per-core CPU, available-memory-based Linux RAM, network deltas, disks
+  and resource-leading processes. Process CPU is per core and may exceed 100%.
+  Linux user threads are excluded from process/service-RSS totals.
+- Linux swap, memory PSI, I/O wait, rolling OOM counts, block I/O latency/utilization
+  and inode diagnostics. Unsupported/reset/stale readings remain unavailable.
+- Minute history, coarser SQLite aggregates, coverage/integrity metadata, incident
+  evidence, seven-day prospective process snapshots and quota/retention reporting.
+- Editable CPU, memory, disk and Linux diagnostic rules, with severity/recovery and
+  time-window conditions. Deleted diagnostic presets are not recreated on restart.
+- Selected redacted logs, rotation handling, bounded folders, Linux service/journal
+  checks and an optional permission-limited Docker helper. Discovery of declared
+  web hosts and running service/database engines does not enable monitoring itself.
+- HTTP status/content/JSON/latency and verified TLS checks. Blocked destinations
+  stay unavailable; DNS/content failures are failures; redirects are not followed.
+- Declared scheduled-job state/deadline/runtime reports. The reporting command does
+  not execute a job or validate a backup restore. Host restart detection reports
+  after return; it is not independent whole-host outage detection.
+- Guided Linux administrator creation, eight-character minimum password, optional
+  TOTP/recovery codes, Argon2id, revocable browser sessions and Host/Origin/CSRF
+  validation. No repeated timed reauthentication during an active session.
+- Public-IP HTTPS proxy with private application listener, or private SSH-forwarded
+  access. Existing account/MFA/history are preserved by normal upgrade/reinstall.
+- **Six BYOK providers**: Grok (default), OpenAI, Claude, Gemini, DeepSeek and Mistral;
+  synthetic generation verification before atomic encrypted save, automatic
+  endpoint/model settings and provider-specific text protocols.
+- **Server AI text chat**: single-host TR/EN concise replies, inferred bounded
+  periods, readable UTC peak intervals, fixed read-only evidence, visible 20-attempt
+  UTC daily budget, manual retry and independent relevant-history notices. No
+  uploads/audio, general-purpose agent tools or persistent chat database.
+- Optional cached incident explanations with a separate 10-request daily budget.
+  Automatic explanations are off by default; routine metric rules remain local.
+- **Ten read-only MCP tools**, local/SSH stdio wizard, private key files, generated
+  Codex/JSON configuration, editable per-client grants, scopes and revocation.
+  The calling client's selected model interprets MCP evidence; MCP does not call
+  the server's Grok key. There is no HTTP MCP endpoint or multi-host selector.
+- Optional direct SMTP over verified TLS/STARTTLS, recipient verification and a
+  durable queue; no local mail server is required. Optional relay and signed HTTPS
+  webhooks are separate. Webhook responses cannot trigger server actions.
+- Public product website and illustrative demo media, separate from each private
+  installation's dashboard, authentication and monitoring data.
 
-The acceptance report and raw evidence are generated under `artifacts/` and are not
-part of the source distribution. Tests cover real application HTTP APIs and MCP,
-synthetic 24-hour aligned CPU/RAM history, actual Mac metrics, source lifecycle,
-authentication, installer output, and current browser interactions. Actual Ubuntu
-acceptance is reported separately from macOS; a Mac build is never Linux evidence.
+## Evidence and remaining limits
 
-A single bounded xAI generation with synthetic data succeeded. Automatic AI analysis
-remains disabled in the test installation. Credentials are stored outside source code
-and encrypted in the agent database. SMTP authentication and one provider-accepted test message succeeded against the configured
-provider; inbox delivery has not been confirmed.
+Automated tests exercise real isolated HTTP routing/auth/CSRF, bounded analytic
+fixtures, scopes/revocation, process identity, quota/history behavior, installer
+contracts and browser journeys. Provider/UI fixtures use mocks where documented.
+A successful real provider call verifies that selected account at that moment,
+not every provider, future availability or general root-cause accuracy. Never
+publish test keys, real telemetry or private operator evidence with release assets.
 
-## Deliberate preview limits
+Linux x86-64 packaging targets the Ubuntu/Debian versions accepted by the installer.
+The platform matrix records how deeply each was checked. macOS is for development
+and local validation, not evidence of Linux service/TLS installation. Linux ARM64,
+Windows Server and Kubernetes have no published supported package.
 
-- Public free-edition downloads are available. Pro, Windows Server, Kubernetes and a central multi-server dashboard are not available. Pro is planned in a separate repository; independent free-edition installations are not restricted.
-- The static musl Linux artifact targets supported Ubuntu / Debian x86-64 userspaces. Full installation and compatibility evidence have different scopes; see [the versioned validation matrix](PREVIEW.md). No Linux ARM64 server package is published.
-- Monitoring only has history collected since installation. The 24-hour MCP acceptance table is a clearly labelled synthetic test, not a claim of 24 hours of real uptime.
-- Rule preview uses the last five minutes of detailed samples. Aggregated averages cannot recreate exact long-window threshold durations.
-- Selected log files provide recent redacted lines, not a full-text archival log search. MCP's log summary is numeric, not an unrestricted file reader.
-- Database names, sizes, connection counts and query performance need separate read-only database integrations. Only engine/process discovery is implemented now.
-- Per-process historical charts, target-specific long-term latency charts, full backup validation and automatic anomaly root-cause certainty are not implemented.
-- SSH MCP requires pre-existing noninteractive SSH access and permission to read the selected installation's private data. The wizard does not grant root access or install SSH keys.
-- SMTP acceptance, queue acceptance and inbox delivery are different states. Bounce/delivery callbacks, public hosted enrollment and notification service terms remain release work.
-- A short CPU/RSS observation is not a 24-hour soak test. Heavy log scans, pathological filesystems and sustained multi-client workloads need separate validation.
-- Checksums verify downloaded artifact integrity within the authenticated release channel. Signed public manifests and macOS codesign/notarization remain release work.
+History begins with collection and may be reduced by quota pressure. Metric
+windows can cover up to 366 days; Server AI limits its summary window to 60 days;
+process-history queries cover up to seven days. These limits do not promise that
+those durations of data exist. Snapshots do not establish continuous per-process
+causation. Aggregates cannot recover exact spike seconds or arbitrary threshold
+durations; statistical correlation/outliers are not proof of root cause.
 
-The original macOS data directory and launchd identifier are retained for upgrade
-compatibility. Internal binary/service names are stable identifiers, not the displayed
-product name. All application-owned UI, MCP descriptions, mail templates and generated
-instructions are English; custom user text is preserved.
+Website/job monitor states are latest configured observations rather than complete
+historical uptime. Log summary counts are latest-check batches, not a full-text
+archival search. Database names/sizes/connections/query performance require separate
+read-only database integrations; only engine/process discovery is included now.
+Backup reports do not prove restorability. Whole-host outage alerts require an
+independent monitor. Long-running pathological workloads and additional full-OS
+installations need separate validation.
+
+SMTP authentication, provider acceptance, queue acceptance and inbox delivery are
+different states. Checksums verify integrity in the trusted release channel; a
+separate publisher-signature system and macOS notarization are not implied.
+Recovery and destructive removal are explicit root-only operator actions, distinct
+from first-time setup and normal preserve-data uninstall. See [Operations](OPERATIONS.md).
+
+[Architecture](ARCHITECTURE.md) · [Security](SECURITY.md) · [AI](AI_CONNECTIONS.md) · [MCP](MCP_CONNECTIONS.md)

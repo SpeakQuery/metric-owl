@@ -4,7 +4,7 @@ use anyhow::{Result, bail, ensure};
 use guard_core::store::Store;
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::Mailbox,
+    message::{Mailbox, MultiPart, SinglePart},
     transport::smtp::{
         authentication::Credentials,
         client::{Tls, TlsParameters},
@@ -181,7 +181,13 @@ pub async fn check(app: &App, s: &Settings) -> Result<()> {
     }
 }
 
-fn message(sender: Mailbox, recipient: &str, subject: &str, body: &str) -> Result<Message> {
+fn message(
+    sender: Mailbox,
+    recipient: &str,
+    subject: &str,
+    body: &str,
+    html: Option<&str>,
+) -> Result<Message> {
     ensure!(
         subject.len() <= 512 && !subject.chars().any(char::is_control),
         "Invalid email subject"
@@ -190,18 +196,37 @@ fn message(sender: Mailbox, recipient: &str, subject: &str, body: &str) -> Resul
         body.len() <= 16 * 1024,
         "Email summary exceeds the size limit"
     );
-    Message::builder()
+    let builder = Message::builder()
         .from(sender)
         .to(address(recipient)?)
-        .subject(subject)
-        .header(lettre::message::header::ContentType::TEXT_PLAIN)
-        .body(body.to_owned())
-        .map_err(|_| anyhow::anyhow!("Unable to build email message"))
+        .subject(subject);
+    let result = if let Some(html) = html {
+        ensure!(
+            !html.is_empty() && html.len() <= 64 * 1024,
+            "Email HTML exceeds the size limit"
+        );
+        builder.multipart(
+            MultiPart::alternative()
+                .singlepart(SinglePart::plain(body.to_owned()))
+                .singlepart(SinglePart::html(html.to_owned())),
+        )
+    } else {
+        builder
+            .header(lettre::message::header::ContentType::TEXT_PLAIN)
+            .body(body.to_owned())
+    };
+    result.map_err(|_| anyhow::anyhow!("Unable to build email message"))
 }
 
-async fn send(app: &App, s: &Settings, subject: &str, body: &str) -> Result<()> {
+async fn send(app: &App, s: &Settings, content: &guard_core::email::Email) -> Result<()> {
     let client = client(app, s).await?;
-    let message = message(client.sender, &s.recipient, subject, body)?;
+    let message = message(
+        client.sender,
+        &s.recipient,
+        &content.subject,
+        &content.text,
+        Some(&content.html),
+    )?;
     match tokio::time::timeout(Duration::from_secs(25), client.transport.send(message)).await {
         Ok(Ok(_)) => Ok(()),
         _ => bail!("SMTP submission failed; delivery status may be unknown"),
@@ -210,18 +235,14 @@ async fn send(app: &App, s: &Settings, subject: &str, body: &str) -> Result<()> 
 
 pub async fn notification(app: &App, s: &Settings, payload: &Value) -> Result<()> {
     ensure!(s.recipient_verified, "Verify your email address first");
-    let title = guard_core::redact::redact(
-        payload["title"].as_str().unwrap_or("Server notification"),
-        256,
-    )
-    .replace(['\r', '\n'], " ");
-    let text = format!(
-        "Server: {}\n\n{}\n\n{}\n\nMetric Owl · Your self-hosted server monitor",
-        guard_core::redact::redact(&s.alias, 100),
-        guard_core::redact::redact(payload["summary"].as_str().unwrap_or(""), 4096),
-        guard_core::redact::redact(payload["recommendation"].as_str().unwrap_or(""), 2048)
-    );
-    send(app, s, &format!("[Metric Owl] {title}"), &text).await
+    let mut payload = payload
+        .as_object()
+        .cloned()
+        .map(Value::Object)
+        .unwrap_or_else(|| json!({}));
+    payload["alias"] = json!(s.alias);
+    let content = guard_core::email::notification(&payload, app.web_access.public_origin());
+    send(app, s, &content).await
 }
 
 #[derive(Serialize, Deserialize)]
@@ -244,7 +265,8 @@ pub async fn start_verification(app: &App, s: &Settings) -> Result<Value> {
     use rand::Rng;
     let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000u32));
     put_verification(&app.store, s, &code).await?;
-    let sent = send(app,s,"Your Metric Owl verification code",&format!("Your verification code: {code}\n\nValid for 10 minutes. Enter this code in your own Metric Owl control center.")).await;
+    let content = guard_core::email::verification(&code)?;
+    let sent = send(app, s, &content).await;
     let (state, error) = if sent.is_ok() {
         ("provider_accepted", None)
     } else {
@@ -420,14 +442,22 @@ mod tests {
     #[test]
     fn message_rejects_header_injection_and_unbounded_payloads() {
         let sender = address("owner@example.com").unwrap();
-        let mail = message(sender.clone(), "alerts@example.com", "A test", "Summary").unwrap();
+        let mail = message(
+            sender.clone(),
+            "alerts@example.com",
+            "A test",
+            "Summary",
+            None,
+        )
+        .unwrap();
         assert_eq!(mail.envelope().to().len(), 1);
         assert!(
             message(
                 sender.clone(),
                 "alerts@example.com",
                 "Test\r\nBcc:other@example.com",
-                "text"
+                "text",
+                None
             )
             .is_err()
         );
@@ -436,7 +466,40 @@ mod tests {
                 sender,
                 "alerts@example.com",
                 "Test",
-                &"a".repeat(16 * 1024 + 1)
+                &"a".repeat(16 * 1024 + 1),
+                None
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn notification_mime_has_plain_text_and_html_with_bounded_parts() {
+        let sender = address("owner@example.com").unwrap();
+        let rendered = guard_core::email::notification(
+            &json!({"severity":"warning","title":"Disk filling up","summary":"Root disk exceeded 85% for 30 seconds."}),
+            Some("https://panel.example.com"),
+        );
+        let mail = message(
+            sender.clone(),
+            "alerts@example.com",
+            &rendered.subject,
+            &rendered.text,
+            Some(&rendered.html),
+        )
+        .unwrap();
+        let wire = String::from_utf8(mail.formatted()).unwrap();
+        assert!(wire.contains("multipart/alternative"));
+        assert!(wire.contains("text/plain"));
+        assert!(wire.contains("text/html"));
+        assert!(wire.contains("Root disk exceeded 85%"));
+        assert_eq!(mail.envelope().to().len(), 1);
+        assert!(
+            message(
+                sender,
+                "alerts@example.com",
+                "Test",
+                "Text",
+                Some(&"a".repeat(64 * 1024 + 1))
             )
             .is_err()
         );

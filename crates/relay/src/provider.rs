@@ -1,7 +1,8 @@
 //! Operator-configured email transports. Credentials never enter API payloads or errors.
 use anyhow::{Result, bail};
 use lettre::{
-    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::Mailbox,
+    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+    message::{Mailbox, MultiPart, SinglePart},
     transport::smtp::authentication::Credentials,
 };
 use serde_json::{Value, json};
@@ -92,8 +93,7 @@ impl Provider {
         match self {
             Self::LocalTest => bail!("Local test messages must use the test mailbox"),
             Self::Postmark { token, sender } => {
-                payload["From"] = json!(sender);
-                payload["MessageStream"] = json!("outbound");
+                postmark_fields(&mut payload, sender);
                 let client = reqwest::Client::builder()
                     .timeout(Duration::from_secs(15))
                     .redirect(reqwest::redirect::Policy::none())
@@ -119,6 +119,14 @@ impl Provider {
             }
         }
     }
+}
+
+fn postmark_fields(payload: &mut Value, sender: &str) {
+    payload["From"] = json!(sender);
+    payload["MessageStream"] = json!("outbound");
+    // Do not inherit provider defaults that could insert tracking pixels/links.
+    payload["TrackOpens"] = json!(false);
+    payload["TrackLinks"] = json!("None");
 }
 
 fn env_required(key: &str) -> Result<String> {
@@ -231,18 +239,63 @@ fn build_message(sender: &Mailbox, payload: &Value) -> Result<Message> {
     );
     let text = payload["TextBody"].as_str().unwrap_or_default();
     anyhow::ensure!(text.len() <= 16 * 1024, "Email body exceeds the size limit");
-    Message::builder()
+    let builder = Message::builder()
         .from(sender.clone())
         .to(recipient)
-        .subject(subject)
-        .header(lettre::message::header::ContentType::TEXT_PLAIN)
-        .body(text.to_string())
-        .map_err(|_| anyhow::anyhow!("Unable to build email message"))
+        .subject(subject);
+    let result = if let Some(html) = payload["HtmlBody"].as_str() {
+        anyhow::ensure!(
+            !html.is_empty() && html.len() <= 64 * 1024,
+            "Email HTML exceeds the size limit"
+        );
+        builder.multipart(
+            MultiPart::alternative()
+                .singlepart(SinglePart::plain(text.to_owned()))
+                .singlepart(SinglePart::html(html.to_owned())),
+        )
+    } else {
+        builder
+            .header(lettre::message::header::ContentType::TEXT_PLAIN)
+            .body(text.to_owned())
+    };
+    result.map_err(|_| anyhow::anyhow!("Unable to build email message"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn postmark_submission_disables_open_and_link_tracking() {
+        let mut payload = json!({"TextBody":"Plain text","HtmlBody":"<p>HTML</p>","TrackOpens":true,"TrackLinks":"HtmlAndText","From":"untrusted@example.com"});
+        postmark_fields(&mut payload, "configured@example.com");
+        assert_eq!(payload["TrackOpens"], false);
+        assert_eq!(payload["TrackLinks"], "None");
+        assert_eq!(payload["From"], "configured@example.com");
+        assert_eq!(payload["TextBody"], "Plain text");
+        assert_eq!(payload["HtmlBody"], "<p>HTML</p>");
+    }
+    #[test]
+    fn html_relay_mail_is_multipart_and_legacy_plain_mail_still_works() {
+        let sender: Mailbox = "sender@example.com".parse().unwrap();
+        let content = guard_core::email::notification(
+            &json!({"kind":"recovery","resolved":true,"severity":"critical","title":"CPU load","summary":"The recovery condition was met."}),
+            Some("https://panel.example.com"),
+        );
+        let payload = json!({"To":"alerts@example.com","Subject":content.subject,"TextBody":content.text,"HtmlBody":content.html});
+        let wire =
+            String::from_utf8(build_message(&sender, &payload).unwrap().formatted()).unwrap();
+        assert!(wire.contains("multipart/alternative"));
+        assert!(wire.contains("text/plain"));
+        assert!(wire.contains("text/html"));
+        let mut legacy = payload.clone();
+        legacy.as_object_mut().unwrap().remove("HtmlBody");
+        let wire = String::from_utf8(build_message(&sender, &legacy).unwrap().formatted()).unwrap();
+        assert!(wire.contains("text/plain"));
+        assert!(!wire.contains("multipart/alternative"));
+        let mut oversized = payload;
+        oversized["HtmlBody"] = json!("x".repeat(64 * 1024 + 1));
+        assert!(build_message(&sender, &oversized).is_err());
+    }
     #[test]
     fn smtp_security_is_mandatory_and_paired_with_submission_port() {
         for (security, port, valid) in [

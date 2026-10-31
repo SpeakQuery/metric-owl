@@ -1,4 +1,4 @@
-use crate::model::{Aggregate, Incident, Sample};
+use crate::model::{Aggregate, Incident, Process, Sample};
 use anyhow::Result;
 use rusqlite::{Connection, params};
 use std::{
@@ -27,6 +27,7 @@ impl Store {
    CREATE TABLE IF NOT EXISTS incidents(id TEXT PRIMARY KEY,started REAL NOT NULL,updated REAL NOT NULL,resolved REAL,json TEXT NOT NULL);
    CREATE INDEX IF NOT EXISTS incident_time ON incidents(updated);
    CREATE TABLE IF NOT EXISTS details(at REAL PRIMARY KEY,json TEXT NOT NULL);
+   CREATE TABLE IF NOT EXISTS process_snapshots(at REAL PRIMARY KEY,json TEXT NOT NULL);
    CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY,kind TEXT NOT NULL,payload TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',attempts INTEGER NOT NULL DEFAULT 0,next_at REAL NOT NULL,created REAL NOT NULL,error TEXT);
    CREATE INDEX IF NOT EXISTS outbox_due ON outbox(state,next_at);
    CREATE TABLE IF NOT EXISTS audit(at REAL NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL);
@@ -171,6 +172,21 @@ impl Store {
     ) -> Result<()> {
         self.write(move|c|{let now=crate::now();c.execute("INSERT OR IGNORE INTO outbox(id,kind,payload,next_at,created) VALUES(?1,?2,?3,?4,?4)",params![id,kind,payload.to_string(),now])?;Ok(())}).await
     }
+    /// Small prospective snapshots complement incident-only full detail recording.
+    pub async fn process_snapshot(&self, at: f64, processes: Vec<Process>) -> Result<()> {
+        anyhow::ensure!(
+            at.is_finite() && processes.len() <= 25,
+            "Invalid process snapshot"
+        );
+        self.write(move |c| {
+            c.execute(
+                "INSERT OR REPLACE INTO process_snapshots(at,json) VALUES(?1,?2)",
+                params![at, serde_json::to_string(&processes)?],
+            )?;
+            Ok(())
+        })
+        .await
+    }
     pub async fn budget(&self, kind: &str, limit: u32) -> Result<bool> {
         let kind = kind.to_owned();
         let day = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -225,7 +241,7 @@ impl Store {
     let tx=c.transaction()?;for a in crate::aggregate::merge(&rows,new){insert_aggregate(&tx,&a)?;}tx.execute("DELETE FROM aggregates WHERE resolution=?1 AND start<?2",params![old,boundary])?;tx.commit()?;
    }
   }
-  let tx=c.transaction()?;tx.execute("DELETE FROM aggregates WHERE start<?1",[now-366.*86400.])?;tx.execute("DELETE FROM details WHERE at<?1",[now-30.*86400.])?;tx.execute("DELETE FROM incidents WHERE resolved IS NOT NULL AND updated<?1",[now-366.*86400.])?;tx.execute("DELETE FROM audit WHERE at<?1",[now-90.*86400.])?;tx.execute("DELETE FROM sessions WHERE created<?1 OR last<?2",params![now-43200.,now-1800.])?;tx.execute("DELETE FROM outbox WHERE state IN ('accepted','provider_accepted','test_delivered','delivered','failed','unknown') AND created<?1",[now-30.*86400.])?;tx.execute("DELETE FROM daily_budget WHERE day<?1",[(chrono::Utc::now()-chrono::Duration::days(40)).format("%Y-%m-%d").to_string()])?;tx.execute("DELETE FROM budget_reservations WHERE day<?1",[(chrono::Utc::now()-chrono::Duration::days(40)).format("%Y-%m-%d").to_string()])?;tx.commit()?;
+  let tx=c.transaction()?;tx.execute("DELETE FROM aggregates WHERE start<?1",[now-366.*86400.])?;tx.execute("DELETE FROM details WHERE at<?1",[now-30.*86400.])?;tx.execute("DELETE FROM incidents WHERE resolved IS NOT NULL AND updated<?1",[now-366.*86400.])?;tx.execute("DELETE FROM audit WHERE at<?1",[now-90.*86400.])?;tx.execute("DELETE FROM outbox WHERE state IN ('accepted','provider_accepted','test_delivered','delivered','failed','unknown') AND created<?1",[now-30.*86400.])?;tx.execute("DELETE FROM daily_budget WHERE day<?1",[(chrono::Utc::now()-chrono::Duration::days(40)).format("%Y-%m-%d").to_string()])?;tx.execute("DELETE FROM budget_reservations WHERE day<?1",[(chrono::Utc::now()-chrono::Duration::days(40)).format("%Y-%m-%d").to_string()])?;tx.commit()?;
   c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum(256);")?;Ok(())}).await
     }
     pub fn size_bytes(&self) -> u64 {
@@ -243,7 +259,10 @@ impl Store {
         let path = self.path.clone();
         let initial = self.size_bytes();
         self.write(move|c|{
-        c.execute("DELETE FROM kv WHERE key LIKE 'ai:%' AND CAST(json_extract(value,'$.at') AS REAL) < ?1",[crate::now()-30.*86400.])?;
+        // ai:verified is a non-JSON connection fingerprint, not an analysis cache.
+        // CASE also protects JSON extraction from malformed legacy cache records.
+        c.execute("DELETE FROM kv WHERE key LIKE 'ai:%' AND CASE WHEN json_valid(value) THEN json_type(value,'$.analysis')='text' AND json_type(value,'$.at') IN ('integer','real') AND CAST(json_extract(value,'$.at') AS REAL) < ?1 ELSE 0 END",[crate::now()-30.*86400.])?;
+        c.execute("DELETE FROM process_snapshots WHERE at<?1", [crate::now()-7.*86400.])?;
         if initial>=quota*7/10 {
           c.execute("INSERT INTO kv VALUES('retention_warning',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[format!("Storage pressure: retention has been shortened. Some older details or summaries may have been removed. {}",chrono::Utc::now())])?;
           // Preserve pending delivery, identity, credentials, and unresolved incidents.
@@ -253,7 +272,8 @@ impl Store {
             let size=std::fs::metadata(&*path).map(|m|m.len()).unwrap_or(0)+std::fs::metadata(format!("{}-wal",path.display())).map(|m|m.len()).unwrap_or(0);
             if size<quota*6/10{break;}
             let mut removed=c.execute("DELETE FROM details WHERE at IN (SELECT at FROM details WHERE at<?1 ORDER BY at LIMIT 1000)",[crate::now()-120.])?;
-            if removed==0{removed=c.execute("DELETE FROM kv WHERE key IN (SELECT key FROM kv WHERE key LIKE 'ai:%' ORDER BY CAST(json_extract(value,'$.at') AS REAL) LIMIT 100)",[])?;}
+            if removed==0{removed=c.execute("DELETE FROM process_snapshots WHERE at IN (SELECT at FROM process_snapshots WHERE at<?1 ORDER BY at LIMIT 1000)",[crate::now()-120.])?;}
+            if removed==0{removed=c.execute("DELETE FROM kv WHERE key IN (SELECT key FROM kv WHERE key LIKE 'ai:%' AND CASE WHEN json_valid(value) THEN json_type(value,'$.analysis')='text' AND json_type(value,'$.at') IN ('integer','real') ELSE 0 END ORDER BY CASE WHEN json_valid(value) THEN CAST(json_extract(value,'$.at') AS REAL) END LIMIT 100)",[])?;}
             if removed==0{removed=c.execute("DELETE FROM audit WHERE rowid IN (SELECT rowid FROM audit ORDER BY at LIMIT 5000)",[])?;}
             if removed==0{removed=c.execute("DELETE FROM outbox WHERE id IN (SELECT id FROM outbox WHERE state NOT IN ('pending','relay_queued') ORDER BY created LIMIT 1000)",[])?;}
             if removed==0{removed=c.execute("DELETE FROM aggregates WHERE rowid IN (SELECT rowid FROM aggregates ORDER BY start LIMIT 2000)",[])?;}
@@ -399,6 +419,64 @@ mod acceptance_tests {
         s.enforce_quota(64 * 1024 * 1024).await.unwrap();
         assert!(s.size_bytes() <= 64 * 1024 * 1024);
         assert_eq!(s.get("admin").await.unwrap().as_deref(), Some("preserve"));
+    }
+    #[tokio::test]
+    async fn quota_does_not_parse_or_evict_non_cache_ai_settings() {
+        let d = tempfile::tempdir().unwrap();
+        let s = Store::open(&d.path().join("db")).unwrap();
+        s.put("ai:verified", "opaque-connection-fingerprint".into())
+            .await
+            .unwrap();
+        s.put("ai:legacy", "{broken".into()).await.unwrap();
+        s.put(
+            "ai:expired",
+            serde_json::json!({"analysis":"old","at":crate::now()-31.*86400.}).to_string(),
+        )
+        .await
+        .unwrap();
+        s.put(
+            "ai:fresh",
+            serde_json::json!({"analysis":"new","at":crate::now()}).to_string(),
+        )
+        .await
+        .unwrap();
+        s.put("secret:ai", "encrypted-credential".into())
+            .await
+            .unwrap();
+        s.enforce_quota(64 * 1024 * 1024).await.unwrap();
+        assert_eq!(
+            s.get("ai:verified").await.unwrap().as_deref(),
+            Some("opaque-connection-fingerprint")
+        );
+        assert_eq!(
+            s.get("ai:legacy").await.unwrap().as_deref(),
+            Some("{broken")
+        );
+        assert!(s.get("ai:expired").await.unwrap().is_none());
+        assert!(s.get("ai:fresh").await.unwrap().is_some());
+        assert_eq!(
+            s.get("secret:ai").await.unwrap().as_deref(),
+            Some("encrypted-credential")
+        );
+    }
+    #[tokio::test]
+    async fn prospective_process_snapshots_have_bounded_retention() {
+        let d = tempfile::tempdir().unwrap();
+        let s = Store::open(&d.path().join("db")).unwrap();
+        s.process_snapshot(crate::now() - 8. * 86400., vec![])
+            .await
+            .unwrap();
+        s.process_snapshot(crate::now(), vec![]).await.unwrap();
+        s.enforce_quota(64 * 1024 * 1024).await.unwrap();
+        assert_eq!(
+            s.read(|db| Ok(db
+                .query_row("SELECT COUNT(*) FROM process_snapshots", [], |r| r
+                    .get::<_, u32>(0))?))
+                .await
+                .unwrap(),
+            1
+        );
+        assert!(s.process_snapshot(f64::NAN, vec![]).await.is_err());
     }
     #[tokio::test]
     async fn representative_90_days_roll_up_and_query() {

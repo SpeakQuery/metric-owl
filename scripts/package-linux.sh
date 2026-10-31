@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 source /etc/os-release
 [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 24.04 ]] || { echo 'Build this preview package on Ubuntu 24.04.' >&2; exit 1; }
 arch=amd64
-version=0.1.0~preview.9
+version=0.1.0~preview.10
 file artifacts/release/server-guard | grep -q ELF || { echo 'A Linux ELF binary is required.' >&2; exit 1; }
 program_headers="$(readelf -lW artifacts/release/server-guard)"
 dynamic_entries="$(readelf -dW artifacts/release/server-guard)"
@@ -22,7 +22,7 @@ cp LICENSE "$stage/usr/share/doc/server-guard/copyright"
 cp BINARY-LICENSE.txt "$stage/usr/share/doc/server-guard/"
 cp scripts/show-setup.sh "$stage/usr/share/doc/server-guard/show-setup.sh"
 cp scripts/connection-hints.sh "$stage/usr/share/doc/server-guard/connection-hints.sh"
-cp scripts/uninstall-linux.sh "$stage/usr/share/doc/server-guard/uninstall-linux.sh"
+cp scripts/uninstall-linux.sh scripts/recover-admin.sh scripts/manage-installation.py "$stage/usr/share/doc/server-guard/"
 cp scripts/configure-https.py "$stage/usr/share/doc/server-guard/configure-https.py"
 cp -R artifacts/release/third-party-licenses "$stage/usr/share/doc/server-guard/"
 cat > "$stage/DEBIAN/control" <<CONTROL
@@ -45,6 +45,7 @@ bash /usr/share/doc/server-guard/connection-hints.sh write /var/lib/server-guard
 systemctl daemon-reload
 systemctl enable server-guard
 systemctl restart server-guard
+python3 /usr/share/doc/server-guard/manage-installation.py record
 GUARD_HIDE_SETUP_KEY=1 bash /usr/share/doc/server-guard/show-setup.sh /var/lib/server-guard ssh 4877 "$(systemctl show server-guard -p MainPID --value)"
 POST
 cat > "$stage/DEBIAN/prerm" <<'PRE'

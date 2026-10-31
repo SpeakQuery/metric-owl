@@ -10,7 +10,7 @@ bundle="${1:?Usage: install-linux.sh <release-directory>}"
 bundle="$(cd "$bundle" && pwd)"
 (cd "$bundle" && sha256sum -c SHA256SUMS)
 scripts_dir="$(cd "$(dirname "$0")" && pwd)"
-[[ -f "$scripts_dir/show-setup.sh" && -f "$scripts_dir/connection-hints.sh" && -f "$scripts_dir/../packaging/systemd/server-guard.service" ]] || {
+[[ -f "$scripts_dir/show-setup.sh" && -f "$scripts_dir/connection-hints.sh" && -f "$scripts_dir/manage-installation.py" && -f "$scripts_dir/recover-admin.sh" && -f "$scripts_dir/../packaging/systemd/server-guard.service" ]] || {
   printf 'The installation bundle is incomplete.\n' >&2; exit 1;
 }
 backup="$(mktemp -d)"
@@ -59,6 +59,8 @@ for notice in LICENSE BINARY-LICENSE.txt THIRD-PARTY-NOTICES.txt; do
 done
 if [[ -f "$scripts_dir/uninstall-linux.sh" ]]; then install -m 644 "$scripts_dir/uninstall-linux.sh" /usr/share/doc/server-guard/; fi
 install -m 644 "$scripts_dir/show-setup.sh" "$scripts_dir/connection-hints.sh" /usr/share/doc/server-guard/
+install -m 644 "$scripts_dir/manage-installation.py" "$scripts_dir/recover-admin.sh" /usr/share/doc/server-guard/
+if [[ -f "$bundle/release-metadata.json" ]]; then install -m 644 "$bundle/release-metadata.json" /usr/share/doc/server-guard/; fi
 if [[ -f "$scripts_dir/configure-https.py" ]]; then install -m 644 "$scripts_dir/configure-https.py" /usr/share/doc/server-guard/; fi
 systemctl daemon-reload
 systemctl enable --now server-guard || rollback
@@ -67,4 +69,5 @@ if [[ "${GUARD_INSTALL_QUIET:-0}" == 1 ]]; then
 else
   bash "$scripts_dir/show-setup.sh" /var/lib/server-guard ssh 4877 "$(systemctl show server-guard -p MainPID --value)" || rollback
 fi
+python3 /usr/share/doc/server-guard/manage-installation.py record
 trap - ERR

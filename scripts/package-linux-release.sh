@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 [[ "$(uname -m)" == x86_64 ]] || { printf 'Only the tested x86-64 preview is packaged.\n' >&2; exit 1; }
 source /etc/os-release
 [[ "${ID:-}" == ubuntu && "${VERSION_ID:-}" == 24.04 ]] || { printf 'This release profile requires Ubuntu 24.04.\n' >&2; exit 1; }
-version="${METRIC_OWL_RELEASE_VERSION:-v0.1.0-preview.9}"
+version="${METRIC_OWL_RELEASE_VERSION:-v0.1.0-preview.10}"
 [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || { printf 'Invalid release version.\n' >&2; exit 1; }
 source_commit="${METRIC_OWL_SOURCE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || true)}"
 [[ "$source_commit" =~ ^[a-f0-9]{40}$ ]] || { printf 'Set METRIC_OWL_SOURCE_COMMIT to the exact reviewed Git commit.\n' >&2; exit 1; }
@@ -24,7 +24,7 @@ mkdir -p "$(dirname "$destination")"
 stage="$(mktemp -d "$(dirname "$destination")/.stage.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
 cp artifacts/release/server-guard "$stage/server-guard-linux-amd64"
-cp scripts/bootstrap-linux.sh scripts/install-linux.sh scripts/uninstall-linux.sh scripts/show-setup.sh scripts/connection-hints.sh scripts/configure-https.py "$stage/"
+cp scripts/bootstrap-linux.sh scripts/install-linux.sh scripts/uninstall-linux.sh scripts/recover-admin.sh scripts/manage-installation.py scripts/show-setup.sh scripts/connection-hints.sh scripts/configure-https.py "$stage/"
 cp packaging/systemd/server-guard.service LICENSE BINARY-LICENSE.txt "$stage/"
 python3 - "$stage" "$version" "$source_commit" <<'PY'
 import datetime,json,pathlib,re,subprocess,sys
@@ -44,14 +44,14 @@ metadata={'product':'Metric Owl','version':version,'source_commit':commit,'binar
 PY
 bundle="$stage/metric-owl-$version-linux-amd64"
 mkdir -p "$bundle/scripts" "$bundle/packaging/systemd" "$bundle/release"
-cp "$stage/install-linux.sh" "$stage/uninstall-linux.sh" "$stage/show-setup.sh" "$stage/connection-hints.sh" "$stage/configure-https.py" "$bundle/scripts/"
+cp "$stage/install-linux.sh" "$stage/uninstall-linux.sh" "$stage/recover-admin.sh" "$stage/manage-installation.py" "$stage/show-setup.sh" "$stage/connection-hints.sh" "$stage/configure-https.py" "$bundle/scripts/"
 cp "$stage/server-guard.service" "$bundle/packaging/systemd/"
 cp "$stage/server-guard-linux-amd64" "$bundle/release/server-guard"
-cp "$stage/LICENSE" "$stage/BINARY-LICENSE.txt" "$stage/THIRD-PARTY-NOTICES.txt" "$bundle/release/"
+cp "$stage/LICENSE" "$stage/BINARY-LICENSE.txt" "$stage/THIRD-PARTY-NOTICES.txt" "$stage/release-metadata.json" "$bundle/release/"
 (cd "$bundle/release" && sha256sum server-guard > SHA256SUMS)
 tar -czf "$stage/metric-owl-$version-linux-amd64.tar.gz" -C "$stage" "$(basename "$bundle")"
 rm -rf "$bundle"
-(cd "$stage" && sha256sum server-guard-linux-amd64 bootstrap-linux.sh install-linux.sh uninstall-linux.sh show-setup.sh connection-hints.sh configure-https.py server-guard.service LICENSE BINARY-LICENSE.txt THIRD-PARTY-NOTICES.txt release-metadata.json "metric-owl-$version-linux-amd64.tar.gz" > SHA256SUMS)
+(cd "$stage" && sha256sum server-guard-linux-amd64 bootstrap-linux.sh install-linux.sh uninstall-linux.sh recover-admin.sh manage-installation.py show-setup.sh connection-hints.sh configure-https.py server-guard.service LICENSE BINARY-LICENSE.txt THIRD-PARTY-NOTICES.txt release-metadata.json "metric-owl-$version-linux-amd64.tar.gz" > SHA256SUMS)
 mv "$stage" "$destination"
 trap - EXIT
 printf 'Preview package staged at %s. Nothing has been uploaded or published.\n' "$destination"

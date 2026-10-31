@@ -115,9 +115,6 @@ export default function Sources({ sample }: { sample: Sample | null }) {
   const [loading, setLoading] = useState(true);
   const [loadedTargets, setLoadedTargets] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [showAuth, setShowAuth] = useState(false);
-  const [authBusy, setAuthBusy] = useState(false);
-  const [credentials, setCredentials] = useState({ username: 'admin', password: '', code: '' });
   const formPanel = useRef<HTMLElement>(null);
   const mutation = useRef(false);
   const generation = useRef(0);
@@ -154,7 +151,7 @@ export default function Sources({ sample }: { sample: Sample | null }) {
         return target?.enabled && JSON.stringify(previous) === JSON.stringify(target);
       }));
       setMessage(success); return true;
-    } catch (cause) { const message = (cause as Error).message; setError(message); if (/re-authenticat|verify your identity/i.test(message)) setShowAuth(true); return false; }
+    } catch (cause) { const message = (cause as Error).message; setError(message); return false; }
     finally { mutation.current = false; setBusy(false); setRefreshing(false); }
   }
   function focusForm(next: SourceForm, id: string | null = null) {
@@ -175,9 +172,8 @@ export default function Sources({ sample }: { sample: Sample | null }) {
   const kind = kinds[form.kind];
   const activeCount = targets.filter(t => t.enabled).length;
   return <div className="sources-page">
-    {error && <div role="alert" className="notice error"><span>{error}{/re-authenticat|verify your identity/i.test(error) && ' Verify your identity below, then retry. Your form has been kept.'}</span><button className="icon-button" aria-label="Dismiss source error" onClick={() => setError('')}><X size={15} /></button></div>}
+    {error && <div role="alert" className="notice error"><span>{error}</span><button className="icon-button" aria-label="Dismiss source error" onClick={() => setError('')}><X size={15} /></button></div>}
     {message && <div role="status" className="notice success"><Check size={17} />{message}</div>}
-    {showAuth && <section className="panel form-panel source-reauth"><h2>Verify your identity</h2><p>Your monitor settings stay in the form. Verification unlocks sensitive changes for 5 minutes.</p><form onSubmit={async event => { event.preventDefault(); setAuthBusy(true); setError(''); try { await api('auth/reauth', 'POST', credentials); setCredentials({ username: 'admin', password: '', code: '' }); setShowAuth(false); setMessage('Identity verified. You can retry your monitor change.'); } catch (cause) { setError((cause as Error).message); setCredentials(current => ({ ...current, password: '', code: '' })); } finally { setAuthBusy(false); } }}><fieldset disabled={authBusy}><div className="three-col"><label>Administrator username<input autoComplete="username" required value={credentials.username} onChange={event => setCredentials({ ...credentials, username: event.target.value })} /></label><label>Current password<input type="password" autoComplete="current-password" required value={credentials.password} onChange={event => setCredentials({ ...credentials, password: event.target.value })} /></label><label>New verification code<input autoComplete="one-time-code" required value={credentials.code} onChange={event => setCredentials({ ...credentials, code: event.target.value })} /></label></div><button className="primary">{authBusy ? 'Verifying…' : 'Verify identity'}</button></fieldset></form></section>}
     <div className="source-overview"><div><Globe2 /><strong>{inventory ? inventory.sites.length : '—'}</strong><span>domain declarations</span></div><div><Server /><strong>{inventory ? inventory.services.length : '—'}</strong><span>observed service groups</span></div><div><ShieldCheck /><strong>{loading ? '—' : activeCount}</strong><span>enabled monitors</span></div><button className="secondary compact" disabled={refreshing || busy} onClick={() => void refresh()}><RefreshCw size={14} />{refreshing ? 'Refreshing…' : 'Refresh results'}</button></div>
 
     <section className="panel"><div className="panel-head"><h2>Disks & available space</h2><span className="tag">EVERY 15 SECONDS</span></div><div className="disk-grid">{sample?.disks.length ? sample.disks.map(disk => {

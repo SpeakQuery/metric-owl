@@ -28,8 +28,8 @@ parser.add_argument('--control')
 args = parser.parse_args()
 source = pathlib.Path(__file__).resolve().parents[1] / 'public'
 required = ['index.html','404.html','styles.css','site.js','privacy.html','docs/quick-start.html',
-            'docs/releases.html','assets/owl.svg','assets/dashboard.jpg','assets/rules.jpg',
-            'assets/mcp.jpg','assets/dashboard-light.jpg','assets/social-preview.jpg']
+            'docs/releases.html','docs/advanced.html','assets/owl.svg','assets/dashboard.jpg','assets/rules.jpg',
+            'assets/mcp.jpg','assets/server-ai.jpg','assets/dashboard-light.jpg','assets/social-preview.jpg']
 for name in required:
     if not (source / name).is_file():
         raise SystemExit(f'Required public file is missing: {name}')

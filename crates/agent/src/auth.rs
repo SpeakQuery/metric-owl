@@ -81,6 +81,28 @@ impl Auth {
         let vault: [u8; 32] = bytes
             .try_into()
             .map_err(|_| anyhow::anyhow!("Invalid key file"))?;
+        store
+            .write(|db| {
+                let tx = db.transaction()?;
+                let migrated: bool = tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM kv WHERE key='browser_session_v1')",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if !migrated {
+                    // Do not revive tokens that expired under the previous policy.
+                    // Valid existing logins continue; later startups do not time them out.
+                    let now = guard_core::now();
+                    tx.execute(
+                        "DELETE FROM sessions WHERE created<=?1 OR last<=?2",
+                        params![now - 43200., now - 1800.],
+                    )?;
+                    tx.execute("INSERT INTO kv VALUES('browser_session_v1','1')", [])?;
+                }
+                tx.commit()?;
+                Ok(())
+            })
+            .await?;
         Ok(Self {
             store,
             vault: Arc::new(vault),
@@ -443,10 +465,8 @@ impl Auth {
                     )
                     .optional()?
                     .ok_or_else(|| anyhow::anyhow!("Authentication required"))?;
-                ensure!(
-                    now - s.last < 1800. && now - s.created < 43200.,
-                    "Session expired"
-                );
+                // The browser owns the session lifetime through a non-persistent
+                // cookie. Reloads and long-running tabs must not expire a login.
                 if touch {
                     c.execute("UPDATE sessions SET last=?1 WHERE hash=?2", params![now, h])?;
                 }
@@ -463,46 +483,13 @@ impl Auth {
             })
             .await
     }
-    pub async fn reauth(
-        &self,
-        token: &str,
-        username: String,
-        password: String,
-        code: String,
-    ) -> Result<()> {
-        let _lock = self.lock.lock().await;
-        self.credentials(username, password, code).await?;
-        let h = hash(token);
-        self.store
-            .write(move |c| {
-                c.execute(
-                    "UPDATE sessions SET step_up=?1 WHERE hash=?2",
-                    params![guard_core::now(), h],
-                )?;
-                Ok(())
-            })
-            .await
-    }
-    pub async fn require_step_up(&self, token: &str) -> Result<()> {
+    pub async fn require_session(&self, token: &str) -> Result<()> {
         self.session(token, false).await?;
-        let h = hash(token);
-        self.store
-            .read(move |c| {
-                let t: f64 =
-                    c.query_row("SELECT step_up FROM sessions WHERE hash=?1", [h], |r| {
-                        r.get(0)
-                    })?;
-                ensure!(
-                    guard_core::now() - t <= 300.,
-                    "Re-authenticate to change sensitive settings"
-                );
-                Ok(())
-            })
-            .await
+        Ok(())
     }
     pub async fn begin_mfa_change(&self, session: &str) -> Result<serde_json::Value> {
         let _lock = self.lock.lock().await;
-        self.require_step_up(session).await?;
+        self.require_session(session).await?;
         let a: Admin = serde_json::from_str(
             &self
                 .store
@@ -520,7 +507,7 @@ impl Auth {
     }
     pub async fn finish_mfa_change(&self, session: &str, code: &str) -> Result<Vec<String>> {
         let _lock = self.lock.lock().await;
-        self.require_step_up(session).await?;
+        self.require_session(session).await?;
         self.rate_limit().await?;
         let pending: serde_json::Value = serde_json::from_str(
             &self.unseal(
@@ -551,7 +538,7 @@ impl Auth {
         self.store
             .write(move |c| {
                 let tx = c.transaction()?;
-                valid_step_up_in_transaction(&tx, &session_hash)?;
+                valid_session_in_transaction(&tx, &session_hash)?;
                 tx.execute("UPDATE kv SET value=?1 WHERE key='admin'", [json])?;
                 tx.execute("DELETE FROM kv WHERE key='pending_mfa'", [])?;
                 tx.execute("DELETE FROM sessions", [])?;
@@ -563,12 +550,12 @@ impl Auth {
     }
     pub async fn disable_mfa(&self, session: &str) -> Result<()> {
         let _lock = self.lock.lock().await;
-        self.require_step_up(session).await?;
+        self.require_session(session).await?;
         let session_hash = hash(session);
         self.store
             .write(move |c| {
                 let tx = c.transaction()?;
-                valid_step_up_in_transaction(&tx, &session_hash)?;
+                valid_session_in_transaction(&tx, &session_hash)?;
                 let raw: String =
                     tx.query_row("SELECT value FROM kv WHERE key='admin'", [], |r| r.get(0))?;
                 let mut admin: Admin = serde_json::from_str(&raw)?;
@@ -590,7 +577,7 @@ impl Auth {
     pub async fn change_password(&self, session: &str, password: String) -> Result<()> {
         validate_password(&password)?;
         let _lock = self.lock.lock().await;
-        self.require_step_up(session).await?;
+        self.require_session(session).await?;
         let p = tokio::task::spawn_blocking(move || password_hash(&password)).await??;
         let mut a: Admin =
             serde_json::from_str(&self.store.get("admin").await?.unwrap_or_default())?;
@@ -600,7 +587,7 @@ impl Auth {
         self.store
             .write(move |c| {
                 let tx = c.transaction()?;
-                valid_step_up_in_transaction(&tx, &session_hash)?;
+                valid_session_in_transaction(&tx, &session_hash)?;
                 tx.execute("UPDATE kv SET value=?1 WHERE key='admin'", [json])?;
                 tx.execute("DELETE FROM sessions", [])?;
                 tx.commit()?;
@@ -623,6 +610,31 @@ fn password_hash(p: &str) -> Result<String> {
         .map_err(|_| anyhow::anyhow!("Unable to process password"))?
         .to_string())
 }
+
+/// Local offline recovery only; deliberately separate from authenticated HTTP methods.
+/// The CLI checks root ownership and holds the stopped agent's IPC path first.
+pub(crate) async fn recover_local_admin(store: &Store, password: String) -> Result<()> {
+    validate_password(&password)?;
+    let encoded = tokio::task::spawn_blocking(move || password_hash(&password)).await??;
+    store.write(move |db| {
+        let tx = db.transaction()?;
+        let raw: String = tx.query_row("SELECT value FROM kv WHERE key='admin'", [], |r| r.get(0))?;
+        let mut admin: Admin = serde_json::from_str(&raw)?;
+        validate_username(&admin.username)?;
+        admin.password = encoded;
+        admin.mfa_enabled = false;
+        admin.secret.clear();
+        admin.last_step = 0;
+        admin.recovery.clear();
+        tx.execute("UPDATE kv SET value=?1 WHERE key='admin'", [serde_json::to_string(&admin)?])?;
+        tx.execute("DELETE FROM sessions", [])?;
+        tx.execute("DELETE FROM kv WHERE key IN ('bootstrap','pending_admin','installer_pending','pending_mfa','auth_attempts')", [])?;
+        tx.execute("INSERT INTO audit(at,actor,action) VALUES(?1,'local-root','Administrator password recovered; sessions and MFA reset')", [guard_core::now()])?;
+        tx.commit()?;
+        Ok(())
+    }).await
+}
+
 pub fn make_totp(secret: &str, user: &str) -> Result<TOTP> {
     Ok(TOTP::new(
         Algorithm::SHA1,
@@ -646,17 +658,15 @@ fn valid_step(t: &TOTP, code: &str, last: u64) -> Result<u64> {
 fn legacy_mfa_enabled() -> bool {
     true
 }
-fn valid_step_up_in_transaction(tx: &rusqlite::Transaction<'_>, session_hash: &str) -> Result<()> {
-    let (created, last, step_up): (f64, f64, f64) = tx.query_row(
-        "SELECT created,last,step_up FROM sessions WHERE hash=?1",
+fn valid_session_in_transaction(tx: &rusqlite::Transaction<'_>, session_hash: &str) -> Result<()> {
+    // Recheck inside the mutation transaction so a concurrent logout/revocation
+    // cannot commit an account change using a previously validated session.
+    let exists: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sessions WHERE hash=?1)",
         [session_hash],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        |r| r.get(0),
     )?;
-    let now = guard_core::now();
-    ensure!(
-        now - created < 43200. && now - last < 1800. && now - step_up <= 300.,
-        "Re-authenticate to change sensitive settings"
-    );
+    ensure!(exists, "Authentication required");
     Ok(())
 }
 
@@ -736,7 +746,7 @@ mod tests {
         assert!(valid_step(&t, &code, step).is_err());
     }
     #[tokio::test]
-    async fn vault_and_session_expiration() {
+    async fn vault_and_browser_session_revocation() {
         let d = tempfile::tempdir().unwrap();
         let s = Store::open(&d.path().join("db")).unwrap();
         let a = Auth::new(s.clone(), d.path()).await.unwrap();
@@ -750,7 +760,47 @@ mod tests {
         })
         .await
         .unwrap();
+        // Even an old session survives history retention and page reload lookups.
+        s.retain(guard_core::now()).await.unwrap();
+        assert_eq!(a.session("session", false).await.unwrap().csrf, "csrf");
+        a.require_session("session").await.unwrap();
+        a.logout("session").await.unwrap();
         assert!(a.session("session", true).await.is_err());
+    }
+    #[tokio::test]
+    async fn browser_session_upgrade_discards_expired_tokens_only_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("db")).unwrap();
+        store
+            .write(|db| {
+                let now = guard_core::now();
+                for (token, created, last) in [
+                    ("active", now - 600., now - 60.),
+                    ("idle-expired", now - 3600., now - 1801.),
+                    ("lifetime-expired", now - 43201., now - 60.),
+                ] {
+                    db.execute(
+                        "INSERT INTO sessions VALUES(?1,?2,?3,'csrf',0)",
+                        params![hash(token), created, last],
+                    )?;
+                }
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let auth = Auth::new(store.clone(), dir.path()).await.unwrap();
+        assert!(auth.session("active", false).await.is_ok());
+        assert!(auth.session("idle-expired", false).await.is_err());
+        assert!(auth.session("lifetime-expired", false).await.is_err());
+        store
+            .write(|db| {
+                db.execute("UPDATE sessions SET created=0,last=0", [])?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        let reopened = Auth::new(store, dir.path()).await.unwrap();
+        assert!(reopened.session("active", false).await.is_ok());
     }
 }
 #[cfg(test)]
@@ -915,7 +965,7 @@ mod installer_account_tests {
         assert!(!reopened.mfa_required().await.unwrap());
     }
     #[tokio::test]
-    async fn optional_mfa_enable_disable_require_recent_auth_and_revoke_sessions() {
+    async fn optional_mfa_enable_disable_use_signed_in_session_and_revoke_sessions() {
         let (dir, store, auth) = fixture().await;
         auth.prepare_admin("admin".into(), PASSWORD.into(), dir.path())
             .await
@@ -948,20 +998,8 @@ mod installer_account_tests {
             })
             .await
             .unwrap();
-        assert!(auth.disable_mfa(&protected).await.is_err());
-        assert!(
-            auth.reauth(&protected, "admin".into(), PASSWORD.into(), String::new())
-                .await
-                .is_err()
-        );
-        auth.reauth(
-            &protected,
-            "admin".into(),
-            PASSWORD.into(),
-            recovery[1].clone(),
-        )
-        .await
-        .unwrap();
+        assert!(auth.disable_mfa("missing-session").await.is_err());
+        // The initial MFA login is sufficient for this entire browser session.
         auth.disable_mfa(&protected).await.unwrap();
         assert!(auth.session(&protected, false).await.is_err());
         assert!(!auth.mfa_required().await.unwrap());

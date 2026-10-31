@@ -90,6 +90,7 @@ impl Sample {
                 .iter()
                 .find(|d| d.id == source)
                 .map(|d| d.available),
+            "disk_total" => self.disks.iter().find(|d| d.id == source).map(|d| d.total),
             _ => self
                 .diagnostics
                 .iter()

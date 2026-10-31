@@ -43,11 +43,11 @@ test('real agent: secure setup, live monitoring, rule packs, and connections',as
  await expect.poll(async()=>page.evaluate(async()=>{const r=await fetch('/api/v1/current');const s=await r.json();return s.processes.some((p:any)=>p.cpu!==null&&p.cpu>0)})).toBe(true);
  await mkdir('../artifacts/screenshots',{recursive:true});await page.screenshot({path:'../artifacts/screenshots/overview-desktop.png',fullPage:true,animations:'disabled'});await page.getByRole('button',{name:'Switch theme',exact:true}).click();await expect(page.locator('html')).toHaveAttribute('data-theme','light');await expect(page.locator('body')).toHaveCSS('background-color','rgb(245, 247, 249)');await page.screenshot({path:'../artifacts/screenshots/overview-light.png',fullPage:true,animations:'disabled'});await page.getByRole('button',{name:'Switch theme',exact:true}).click();await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Alert rules',exact:true}).click();await page.getByRole('button',{name:'Advanced',exact:true}).click();await page.getByText('Optional preset packs',{exact:false}).click();await page.locator('.preset').filter({has:page.getByRole('heading',{name:'Sustained load'})}).getByRole('button',{name:'Apply pack'}).click();await expect(page.getByText('CPU high for one hour',{exact:true})).toBeVisible();await expect(page.getByText('CPU usage above 70% · For at least 48 minutes within 1 hour',{exact:false})).toBeVisible();await page.getByRole('button',{name:'CPU high for one hour edit'}).click();await expect(page.getByRole('dialog')).toBeVisible();await page.getByLabel('Limit (%)',{exact:true}).fill('72');await page.getByRole('button',{name:'Save',exact:true}).click();await expect(page.getByRole('dialog')).not.toBeVisible();await expect(page.getByText('CPU usage above 72%',{exact:false})).toBeVisible();await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'../artifacts/screenshots/rules-desktop.png',fullPage:true,animations:'disabled'});
- await page.getByRole('button',{name:'Notifications & connections',exact:true}).click();await page.getByRole('tab',{name:'AI providers'}).click();await expect(page.getByRole('combobox',{name:'AI provider',exact:true}).locator('option')).toHaveCount(10);await expect(page.getByRole('button',{name:'Connect',exact:true})).toBeDisabled();await expect(page.getByLabel('Model name',{exact:true})).toHaveCount(0);await expect(page.getByLabel('API base URL',{exact:true})).toHaveCount(0);await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'../artifacts/screenshots/connections-desktop.png',fullPage:true,animations:'disabled'});
+ await page.getByRole('button',{name:'Notifications & connections',exact:true}).click();await page.getByRole('tab',{name:'AI providers'}).click();await expect(page.getByRole('combobox',{name:'AI provider',exact:true}).locator('option')).toHaveCount(6);await expect(page.getByRole('button',{name:'Connect',exact:true})).toBeDisabled();await expect(page.getByLabel('Model name',{exact:true})).toHaveCount(0);await expect(page.getByLabel('API base URL',{exact:true})).toHaveCount(0);await page.evaluate(()=>window.scrollTo(0,0));await page.screenshot({path:'../artifacts/screenshots/connections-desktop.png',fullPage:true,animations:'disabled'});
  // Only provider traffic is simulated here; settings/catalog/auth are the real agent.
  const aiProvider=page.getByRole('combobox',{name:'AI provider',exact:true});
  const aiKey=page.getByLabel('API key',{exact:true});
- await expect(aiProvider.locator('option')).toHaveText(['OpenAI','Anthropic (Claude)','Google Gemini','Groq','xAI (Grok)','DeepSeek','Mistral AI','OpenRouter','NVIDIA NIM','SiliconFlow']);
+ await expect(aiProvider.locator('option')).toHaveText(['xAI (Grok)','OpenAI','Anthropic (Claude)','Google Gemini','DeepSeek','Mistral AI']);
  await aiProvider.selectOption('openai');
  await aiKey.fill('synthetic-ai-ui-key');
  const aiRequests:any[]=[];
@@ -64,7 +64,7 @@ test('real agent: secure setup, live monitoring, rule packs, and connections',as
  await page.getByRole('button',{name:'Connect',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('OpenAI connected');
  await expect(aiKey).toHaveValue('');
- await expect(page.getByRole('button',{name:'Check connection',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Check connection',exact:true})).toBeVisible();await expect(page.getByText('Connected',{exact:true})).toBeVisible();
  expect(aiRequests).toEqual([{provider:'openai',key:'synthetic-ai-ui-key'},{provider:'openai',key:'synthetic-ai-ui-key'}]);
  await aiProvider.selectOption('anthropic');
  await expect(page.getByRole('button',{name:'Connect',exact:true})).toBeDisabled();
@@ -80,7 +80,7 @@ test('real agent: secure setup, live monitoring, rule packs, and connections',as
  await page.unroute('**/api/v1/ai/connect');
 
  for(const [tab,heading] of [['External AI apps (MCP)','Connect an external AI app'],['Webhook','Send events to your own agent.'],['Email & reports','Stay informed.']]){await page.getByRole('tab',{name:tab,exact:true}).click();await expect(page.getByRole('heading',{name:heading,exact:true})).toBeVisible()}
- for(const [navigation,heading] of [['Applications & storage','Disks & available space'],['History','Server history'],['Security & system','Verify sensitive actions'],['Events & logs','Event timeline']]){await page.getByRole('button',{name:navigation,exact:true}).click();await expect(page.getByRole('heading',{name:heading,exact:true})).toBeVisible()}
+ for(const [navigation,heading] of [['Applications & storage','Disks & available space'],['History','Server history'],['Security & system','Password & sessions'],['Events & logs','Event timeline']]){await page.getByRole('button',{name:navigation,exact:true}).click();await expect(page.getByRole('heading',{name:heading,exact:true})).toBeVisible()}
  await page.getByRole('button',{name:'Live monitoring',exact:true}).click();await expect(page.getByRole('heading',{name:'CPU cores',exact:true})).toBeVisible();await page.getByRole('button',{name:'Pause',exact:true}).click();await expect(page.locator('.status-pill')).toHaveText('Paused');await page.getByRole('button',{name:'Resume',exact:true}).click();await expect(page.locator('.status-pill')).toHaveText('Live data');
  await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Open menu'}).click();await page.getByRole('button',{name:'Overview',exact:true}).click();await expect(page.getByRole('heading',{name:'Overview'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.screenshot({path:'../artifacts/screenshots/overview-mobile.png',fullPage:true,animations:'disabled'});expect(errors).toEqual([]);
  await page.setViewportSize({width:1280,height:900});await page.getByRole('button',{name:'Security & system',exact:true}).click();await page.getByRole('button',{name:'Set up new authenticator',exact:true}).click();await expect(page.getByRole('img',{name:'Authenticator setup QR code',exact:true})).toBeVisible();const replacementImage=PNG.sync.read(await page.getByRole('img',{name:'Authenticator setup QR code',exact:true}).screenshot());const replacementQR=jsQR(new Uint8ClampedArray(replacementImage.data),replacementImage.width,replacementImage.height);const replacementUri=await page.getByRole('link',{name:'Open in an authenticator app',exact:true}).getAttribute('href');expect(replacementQR?.data).toBe(replacementUri);const replacementSecret=new URL(replacementQR!.data).searchParams.get('secret')!;expect(replacementSecret).not.toBe(secret);await page.getByLabel('Verification code from the new app',{exact:true}).fill(totp(replacementSecret));await page.getByRole('button',{name:'Enable new authenticator',exact:true}).click();await expect(page.getByRole('img',{name:'Authenticator setup QR code',exact:true})).toHaveCount(0);await expect(page.locator('.recovery-codes code')).toHaveCount(10);const replacementRecovery=await page.locator('.recovery-codes code').first().innerText();await page.getByRole('button',{name:'Codes saved, continue to sign in',exact:true}).click();await expect(page.getByRole('heading',{name:'Welcome back',exact:true})).toBeVisible();await page.getByLabel('Password',{exact:true}).fill('Secure-test-passphrase-2026');await page.getByLabel('Verification or recovery code').fill(replacementRecovery);await page.getByRole('button',{name:'Secure sign in'}).click();await expect(page.getByRole('heading',{name:'Security & system',exact:true})).toBeVisible();await expect(page.locator('.status-pill')).toHaveText('Live data');expect(errors).toEqual([]);
@@ -114,7 +114,13 @@ test('installer password login with optional authenticator enrollment and remova
   await page.getByLabel('Username',{exact:true}).fill(username);
   await page.getByLabel('Password',{exact:true}).fill(password);
   await page.getByRole('button',{name:'Secure sign in',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Overview',exact:true})).toBeVisible();await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Setup guide',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Overview',exact:true})).toBeVisible();
+  const sessionCookie = (await page.context().cookies(origin)).find(cookie => cookie.name === 'guard_session');
+  expect(sessionCookie).toMatchObject({expires:-1,httpOnly:true,sameSite:'Strict'});
+  await page.reload();
+  await expect(page.getByRole('heading',{name:'Overview',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Welcome back',exact:true})).toHaveCount(0);
+  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Setup guide',exact:true}).click();
   await page.getByRole('button',{name:'Security & system',exact:true}).click();
   await expect(page.getByText('Optional · Not enabled',{exact:true})).toBeVisible();
   await expect(page.getByLabel('New verification code',{exact:true})).toHaveCount(0);
@@ -153,11 +159,7 @@ test('installer password login with optional authenticator enrollment and remova
   await page.getByLabel('Verification or recovery code',{exact:true}).fill(recovery[0]);
   await page.getByRole('button',{name:'Secure sign in',exact:true}).click();
   await expect(page.getByText('Enabled · TOTP',{exact:true})).toBeVisible();
-  await page.getByLabel('Username',{exact:true}).fill(username);
-  await page.getByLabel('Current password',{exact:true}).fill(password);
-  await page.getByLabel('New verification code',{exact:true}).fill(recovery[1]);
-  await page.getByRole('button',{name:'Verify my identity',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('Identity verified');
+  await expect(page.getByRole('button',{name:'Verify my identity',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'Turn off two-factor authentication',exact:true}).click();
   await page.getByRole('button',{name:'Confirm turn off',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Welcome back',exact:true})).toBeVisible();

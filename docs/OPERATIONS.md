@@ -31,6 +31,51 @@ If an unused initial key expires, an authorized server administrator can run the
 
 The application service always binds to 127.0.0.1:4877. The HTTPS proxy exposes the selected public IPv4 address on the selected port (8443, 9443 or 10443); existing hosted domains and certificates are preserved. The public product website is separate from each installation’s control center.
 
+## Recover administrator access
+
+Use an SSH terminal on the monitored Linux server with `sudo` or root access.
+There is no remote password-reset endpoint. Password hashes cannot reveal an old
+password; recovery sets a new one. To display the current administrator username
+without changing the account or stopping monitoring:
+
+```bash
+sudo bash /usr/share/doc/server-guard/recover-admin.sh --show-username
+```
+
+To recover an existing account:
+
+```bash
+sudo bash /usr/share/doc/server-guard/recover-admin.sh
+```
+
+The helper stops Metric Owl, displays the username, and asks twice for a new
+password through a hidden terminal prompt. Nothing you type as a password is
+printed, passed in command arguments/environment variables, or written into a
+helper file. Use 8 or more characters, up to 256 UTF-8 bytes. A mismatch, invalid
+password, or cancellation leaves the password unchanged. The helper restarts
+the service if it was running beforehand, including after a failed or cancelled
+recovery; a previously stopped service remains stopped.
+
+A successful reset signs out **every browser session** and disables and clears
+the old authenticator secret, recovery codes and pending MFA setup. This lets the
+server owner recover when the authenticator was lost too. Sign in using the new
+password, then enable two-factor authentication again in **Security & system**
+if desired. Monitoring history, incident records, rules, MCP keys, encrypted
+provider settings and the existing vault key are preserved. Root recovery is
+recorded in the local audit trail without passwords.
+
+For a custom installation, the underlying command is
+`sudo /path/to/server-guard --data-dir /absolute/private/data recover-admin`;
+add `--show-username` for the username only. Stop that installation first, and
+restart it afterwards. Reset refuses a live collector, symbolic application
+paths, a missing existing administrator/database, or an invalid/missing vault
+key. It does not create a replacement account or a new vault key. On standard
+installations, prefer the wrapper above because it restores the service even
+when recovery is cancelled.
+
+The exact installed preview and source commit, when supplied by the release,
+are recorded in `/usr/share/doc/server-guard/release-metadata.json`.
+
 ## Optional domain or operator-managed HTTPS
 
 Install Metric Owl once on the machine being monitored. A computer or phone used
@@ -99,21 +144,80 @@ email provider charges are separate.
 
 ## Remove the application
 
-Run this on the monitored server:
+Run removal commands in a root-capable terminal on the monitored Linux server.
+For the standard guided/archive installation, preview the data-preserving plan:
+
+```bash
+sudo bash /usr/share/doc/server-guard/uninstall-linux.sh --dry-run
+```
+
+Then remove the running application while preserving its data:
 
 ```bash
 sudo bash /usr/share/doc/server-guard/uninstall-linux.sh
 ```
 
-It stops/removes the Metric Owl service and executable. For installer-managed
-HTTPS, it removes the panel configuration, its renewal timer and only firewall
-rules recorded as owned by Metric Owl. Other websites and their rules remain.
-Operator-managed or older HTTPS configurations stop for review instead of being
-silently removed.
+This stops/disables the Metric Owl service and removes its executable and main
+service unit. Installer-managed panel configuration, renewal units and only the
+firewall rules recorded by the HTTPS installer are detached. The administrator,
+history and encrypted settings in `/var/lib/server-guard`, dedicated certificate
+files, ownership manifest and maintenance helpers are retained. Certificates
+are no longer renewed after removal. Reinstallation can reuse this retained data.
 
-Your account, history and encrypted connection settings are retained in
-`/var/lib/server-guard`. Certificate/account files in `/etc/metric-owl/acme` are
-also retained for safe reinstallation; they are not renewed after removal.
+To permanently remove the account, database, encrypted integration/MCP keys and
+verified dedicated Metric Owl assets, first inspect the purge plan:
+
+```bash
+sudo bash /usr/share/doc/server-guard/uninstall-linux.sh --purge --dry-run
+```
+
+After reviewing the paths and keeping any required backup, run the explicit purge:
+
+```bash
+sudo bash /usr/share/doc/server-guard/uninstall-linux.sh --purge
+```
+
+`--purge` deletes verified Metric Owl data, installed application/service/helper/
+notice files, dedicated TLS/account/client directories and its installer/panel
+logs. It can also follow a previous data-preserving uninstall. It never removes
+Nginx, Python, UFW, other OS packages, the `server-guard` operating-system account,
+other services, unrelated firewall rules, or the shared system journal. The OS
+account is retained because an operator may have reused it outside Metric Owl.
+
+Ownership is recorded in the root-owned
+`/etc/metric-owl/install-manifest.json`. Removal refuses missing/unrecognized
+ownership, modified installed files, unknown service overrides, unfamiliar data
+entries, unsafe links or certificate assets referenced by another configuration.
+Normal internal Certbot lineage links and standard private-environment Python
+launcher links are checked and unlinked safely; links cannot expand deletion
+outside an owned directory. Operator-managed/legacy HTTPS and unfinished HTTPS
+cleanup require review. The tool prints an error instead of guessing or using a
+generic recursive deletion against an arbitrary path.
+
+For an older installation without a manifest, reinstall a checksum-verified
+current release to record recognized ownership, then inspect the plan again.
+An unexpected file or custom configuration still requires operator review.
+Do not move backups into the application data directory to bypass these checks.
+
+The same non-mutating JSON plan is available through
+`sudo python3 /usr/share/doc/server-guard/manage-installation.py inspect --purge`.
+Its fields are `mode`, `remove_files`, `remove_trees`, and `preserve`; it contains
+paths and resource categories, not account credentials or monitoring payloads.
+
+If installed through the `.deb` package, the standard uninstaller refuses to
+delete package-owned files. Keep a checksum-verified unpacked release outside
+the application directories and run `sudo apt remove server-guard` first. Then
+use that verified release copy to inspect and, if intended, remove the retained
+data and owned TLS assets:
+
+```bash
+sudo python3 /path/to/verified-release/scripts/manage-installation.py inspect --purge
+sudo python3 /path/to/verified-release/scripts/manage-installation.py uninstall --purge
+```
+
+The second command is permanent; the first only displays the plan. The manifest
+must remain in place. `apt remove` itself preserves monitoring data; package
+manager removal is not proof that the Metric Owl database was purged.
 
 For an offline backup, first confirm the monitoring service has stopped, then
 archive the complete data directory, including SQLite/WAL files and `master.key`,
@@ -121,5 +225,5 @@ into a root-only backup location outside any web directory. Preserve file owners
 and permissions, inspect the archive contents, and verify a restore to a separate
 private directory before considering deletion. The archive contains authentication
 and integration secrets; do not attach it to a public issue or release. Keep the
-certificate directory separately if you intend to reuse it. Permanent data deletion
-is a separate administrator decision; the uninstaller never performs it.
+certificate directory separately if you intend to reuse it. A purge is permanent;
+do not run it until the backup and the displayed removal plan have been reviewed.

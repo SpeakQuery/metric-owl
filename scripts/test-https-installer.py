@@ -382,12 +382,16 @@ print('TERMINAL_FLOW_OK', flush=True)
         self.assertNotIn(['ufw', 'allow', '80/tcp', 'comment', module.FIREWALL_TAG], calls)
 
     def test_ufw_removal_requires_exact_owned_comment(self):
-        output = "ufw allow 8443/tcp comment 'User rule'\nufw allow 9443/tcp comment 'Metric Owl installer'\n"
-        with patch.object(module.shutil, 'which', return_value='/usr/sbin/ufw'), patch.object(module, 'run', return_value=subprocess.CompletedProcess([], 0, output, '')) as runner:
+        added = "ufw allow 8443/tcp comment 'User rule'\nufw allow 9443/tcp comment 'Metric Owl installer'\n"
+        numbered = '[ 1] 8443/tcp ALLOW IN Anywhere # User rule\n[ 2] 9443/tcp ALLOW IN Anywhere # Metric Owl installer\n[ 3] 9443/tcp (v6) ALLOW IN Anywhere (v6) # User IPv6 rule\n'
+        def run(args, **kwargs):
+            return subprocess.CompletedProcess(args, 0, added if args == ['ufw', 'show', 'added'] else numbered, '')
+        with patch.object(module.shutil, 'which', return_value='/usr/sbin/ufw'), patch.object(module, 'run', side_effect=run) as runner:
             module.close_firewall([8443, 9443])
         calls = [c.args[0] for c in runner.call_args_list]
-        self.assertIn(['ufw', '--force', 'delete', 'allow', '9443/tcp'], calls)
-        self.assertNotIn(['ufw', '--force', 'delete', 'allow', '8443/tcp'], calls)
+        self.assertIn(['ufw', '--force', 'delete', '2'], calls)
+        self.assertNotIn(['ufw', '--force', 'delete', '1'], calls)
+        self.assertNotIn(['ufw', '--force', 'delete', '3'], calls)
 
     def test_existing_operator_configuration_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -755,16 +759,17 @@ print('TERMINAL_FLOW_OK', flush=True)
 
     def test_firewall_cleanup_failure_does_not_skip_other_owned_ports(self):
         calls = []
-        output = "ufw allow 80/tcp comment 'Metric Owl installer'\nufw allow 9443/tcp comment 'Metric Owl installer'\n"
+        added = "ufw allow 80/tcp comment 'Metric Owl installer'\nufw allow 9443/tcp comment 'Metric Owl installer'\n"
+        numbered = '[ 1] 80/tcp ALLOW IN Anywhere # Metric Owl installer\n[ 2] 9443/tcp ALLOW IN Anywhere # Metric Owl installer\n'
         def run(args, **kwargs):
             calls.append(args)
-            if args == ['ufw', '--force', 'delete', 'allow', '9443/tcp']:
+            if args == ['ufw', '--force', 'delete', '2']:
                 raise RuntimeError('synthetic UFW failure')
-            return subprocess.CompletedProcess(args, 0, output, '')
+            return subprocess.CompletedProcess(args, 0, added if args == ['ufw', 'show', 'added'] else numbered, '')
         with patch.object(module.shutil, 'which', return_value='/usr/sbin/ufw'), patch.object(module, 'run', side_effect=run):
             with self.assertRaisesRegex(RuntimeError, '9443'):
                 module.close_firewall([80, 9443])
-        self.assertIn(['ufw', '--force', 'delete', 'allow', '80/tcp'], calls)
+        self.assertIn(['ufw', '--force', 'delete', '1'], calls)
 
 
 if __name__ == '__main__':

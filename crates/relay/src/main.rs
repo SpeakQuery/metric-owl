@@ -1,4 +1,6 @@
 macro_rules! ensure { ($condition:expr, $($arg:tt)*) => { if !$condition { return Err(anyhow::anyhow!($($arg)*).into()); } }; }
+#[cfg(test)]
+mod email_tests;
 mod provider;
 use anyhow::Result;
 use axum::{
@@ -201,7 +203,8 @@ async fn start(State(a): State<App>, headers: HeaderMap, Json(body): Json<Addres
     let r = recipient.clone();
     let dev = d.clone();
     a.store.write(move|c|{c.execute("INSERT INTO recipients(device,email,code_hash,expires) VALUES(?1,?2,?3,?4) ON CONFLICT(device,email) DO UPDATE SET verified=0,code_hash=excluded.code_hash,expires=excluded.expires,attempts=0",params![dev,r,ch,guard_core::now()+600.])?;Ok(())}).await?;
-    a.store.enqueue(format!("verify:{}",uuid::Uuid::new_v4()),"email".into(),json!({"To":recipient,"Subject":"Your Metric Owl verification code","TextBody":format!("Your verification code: {code}\nValid for 10 minutes."),"device":d})).await?;
+    let content = guard_core::email::verification(&code)?;
+    a.store.enqueue(format!("verify:{}",uuid::Uuid::new_v4()),"email".into(),json!({"To":recipient,"Subject":content.subject,"TextBody":content.text,"HtmlBody":content.html,"device":d})).await?;
     Ok(Json(json!({"status":"queued","test_mode":a.test})))
 }
 async fn verify(State(a): State<App>, headers: HeaderMap, Json(body): Json<Address>) -> Api {
@@ -259,28 +262,14 @@ async fn send(State(a): State<App>, headers: HeaderMap, Json(m): Json<Message>) 
             .await?,
         "Daily device sending quota reached"
     );
-    let text = |key: &str, limit: usize| {
-        m.notification
-            .get(key)
-            .and_then(Value::as_str)
-            .map(|s| guard_core::redact::redact(s, limit))
-            .unwrap_or_default()
-    };
-    let subject = format!(
-        "[Metric Owl] {} — {}",
-        text("alias", 100),
-        text("title", 160)
-    );
-    let body = format!(
-        "{}\n\n{}\n\nMetric Owl is a read-only monitor.",
-        text("summary", 2048),
-        text("recommendation", 1024)
-    );
+    // A relay device's payload is not a verified panel-origin configuration.
+    // Rebuild bounded HTML without a CTA; direct SMTP can use local WebAccess.
+    let content = guard_core::email::notification(&m.notification, None);
     a.store
         .enqueue(
             id.clone(),
             "email".into(),
-            json!({"To":recipient,"Subject":subject,"TextBody":body,"device":d}),
+            json!({"To":recipient,"Subject":content.subject,"TextBody":content.text,"HtmlBody":content.html,"device":d}),
         )
         .await?;
     Ok(Json(json!({"status":"queued","id":id})))

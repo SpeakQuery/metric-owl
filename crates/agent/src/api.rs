@@ -43,7 +43,6 @@ pub fn router(a: App) -> Router {
         .route("/api/v1/auth/setup/finish", post(setup_finish))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/logout", post(logout))
-        .route("/api/v1/auth/reauth", post(reauth))
         .route("/api/v1/auth/password", put(password))
         .route("/api/v1/auth/mfa/begin", post(mfa_begin))
         .route("/api/v1/auth/mfa/finish", post(mfa_finish))
@@ -65,6 +64,8 @@ pub fn router(a: App) -> Router {
         .route("/api/v1/connections/test", post(connection_test))
         .route("/api/v1/ai/providers", get(ai_providers))
         .route("/api/v1/ai/connect", post(ai_connect))
+        .route("/api/v1/ai/chat/status", get(crate::chat::status))
+        .route("/api/v1/ai/chat", post(crate::chat::send))
         .route("/api/v1/recipients/start", post(recipient_start))
         .route("/api/v1/recipients/verify", post(recipient_verify))
         .route("/api/v1/notifications", get(notifications))
@@ -77,7 +78,7 @@ pub fn router(a: App) -> Router {
         )
         .route(
             "/api/v1/mcp/clients/{id}",
-            axum::routing::delete(revoke_client),
+            axum::routing::delete(revoke_client).put(update_client_permissions),
         )
         .route("/api/v1/security", get(security))
         .route("/api/v1/security/revoke-sessions", post(revoke_sessions))
@@ -127,7 +128,7 @@ fn secured(mut res: Response, mode: crate::web_access::Mode) -> Response {
             "Strict-Transport-Security",
             HeaderValue::from_static("max-age=31536000"),
         );
-        // Login/logout are the only cookie writers. The public cookie is
+        // Login, status and logout are the only cookie writers. The public cookie is
         // host-bound and never sent over HTTP or to a sibling subdomain.
         if let Some(value) = h.get("set-cookie").and_then(|v| v.to_str().ok())
             && let Some(value) = value.strip_prefix("guard_session=")
@@ -195,11 +196,25 @@ async fn authorized_request(a: App, req: Request, next: Next) -> Response {
     }
     next.run(req).await
 }
-async fn auth_status(State(a): State<App>, h: HeaderMap) -> Api {
-    let session = a.auth.session(&cookie(&h), false).await.ok();
-    Ok(Json(
+fn session_cookie(token: &str) -> Result<HeaderValue> {
+    Ok(HeaderValue::from_str(&format!(
+        "guard_session={token}; HttpOnly; SameSite=Strict; Path=/"
+    ))?)
+}
+async fn auth_status(State(a): State<App>, h: HeaderMap) -> std::result::Result<Response, Error> {
+    let token = cookie(&h);
+    let session = a.auth.session(&token, false).await.ok();
+    let signed_in = session.is_some();
+    let mut response = Json(
         json!({"configured":a.auth.configured().await?,"enrollment_ready":a.auth.enrollment_ready().await?,"mfa_required":a.auth.mfa_required().await?,"session":session,"process_id":std::process::id()}),
-    ))
+    ).into_response();
+    if signed_in {
+        // Replace older persistent cookies when an existing signed-in tab reloads.
+        response
+            .headers_mut()
+            .insert("set-cookie", session_cookie(&token)?);
+    }
+    Ok(response)
 }
 #[derive(Deserialize)]
 struct Credentials {
@@ -242,12 +257,8 @@ async fn login(
 ) -> std::result::Result<Response, Error> {
     let (token, s) = a.auth.login(p.username, p.password, p.code).await?;
     let mut r = Json(json!({"session":s})).into_response();
-    r.headers_mut().insert(
-        "set-cookie",
-        HeaderValue::from_str(&format!(
-            "guard_session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200"
-        ))?,
-    );
+    r.headers_mut()
+        .insert("set-cookie", session_cookie(&token)?);
     Ok(r)
 }
 async fn logout(State(a): State<App>, h: HeaderMap) -> std::result::Result<Response, Error> {
@@ -259,14 +270,8 @@ async fn logout(State(a): State<App>, h: HeaderMap) -> std::result::Result<Respo
     );
     Ok(r)
 }
-async fn reauth(State(a): State<App>, h: HeaderMap, Json(p): Json<Credentials>) -> Api {
-    a.auth
-        .reauth(&cookie(&h), p.username, p.password, p.code)
-        .await?;
-    Ok(Json(json!({"ok":true})))
-}
 async fn password(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) -> Api {
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     a.auth
         .change_password(&cookie(&h), p["password"].as_str().unwrap_or("").into())
         .await?;
@@ -274,12 +279,12 @@ async fn password(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) -> A
 }
 async fn mfa_begin(State(a): State<App>, h: HeaderMap) -> Api {
     let token = cookie(&h);
-    a.auth.require_step_up(&token).await?;
+    a.auth.require_session(&token).await?;
     Ok(Json(a.auth.begin_mfa_change(&token).await?))
 }
 async fn mfa_finish(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) -> Api {
     let token = cookie(&h);
-    a.auth.require_step_up(&token).await?;
+    a.auth.require_session(&token).await?;
     Ok(Json(
         json!({"recovery_codes":a.auth.finish_mfa_change(&token,p["code"].as_str().unwrap_or("")).await?}),
     ))
@@ -354,52 +359,9 @@ pub async fn history_data(
     from: f64,
     to: f64,
 ) -> Result<Value> {
-    ensure!(
-        from.is_finite()
-            && to.is_finite()
-            && from < to
-            && to - from <= 366. * 86400.
-            && source.len() <= 300
-            && [
-                "cpu",
-                "memory",
-                "network_in",
-                "network_out",
-                "disk_used",
-                "disk_free",
-                "swap_used",
-                "swap_total",
-                "swap_used_percent",
-                "memory_pressure",
-                "cpu_iowait",
-                "oom_kills_5m",
-                "disk_io_latency",
-                "disk_io_utilization",
-                "inode_used"
-            ]
-            .contains(&metric.as_str()),
-        "Invalid history query"
-    );
-    let requested = if to - from <= 86400. {
-        60
-    } else if to - from <= 7. * 86400. {
-        300
-    } else if to - from <= 90. * 86400. {
-        3600
-    } else {
-        86400
-    };
-    let rows:Vec<Aggregate>=a.store.read(move|c|{let mut s=c.prepare("SELECT json FROM aggregates WHERE source=?1 AND metric=?2 AND start>=?3 AND start<?4 ORDER BY start LIMIT 20000")?;s.query_map(params![source,metric,from,to],|r|r.get::<_,String>(0))?.map(|r|Ok(serde_json::from_str(&r?)?)).collect()}).await?;
-    let resolution = rows
-        .iter()
-        .map(|r| r.resolution)
-        .max()
-        .unwrap_or(requested)
-        .max(requested);
-    Ok(
-        json!({"resolution":resolution,"rows":guard_core::aggregate::merge(&rows,resolution),"from":from,"to":to}),
-    )
+    crate::analysis::history_data(a, source, metric, from, to).await
 }
+
 #[derive(Deserialize)]
 struct Page {
     offset: Option<u32>,
@@ -432,7 +394,7 @@ async fn incident(State(a): State<App>, Path(id): Path<String>) -> Api {
     ))
 }
 async fn analyze(State(a): State<App>, Path(id): Path<String>, h: HeaderMap) -> Api {
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     Ok(Json(crate::integrations::analyze(&a, &id).await?))
 }
 async fn rules(State(a): State<App>) -> Json<Vec<Rule>> {
@@ -515,7 +477,7 @@ async fn inventory(State(a): State<App>) -> Json<crate::discovery::Inventory> {
 }
 async fn save_targets(State(a): State<App>, h: HeaderMap, Json(mut t): Json<Vec<Target>>) -> Api {
     let _config = a.config_lock.lock().await;
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     ensure!(t.len() <= 30, "At most 30 sources are allowed");
     for target in &mut t {
         if target.kind == "job" && target.address.is_empty() {
@@ -595,7 +557,7 @@ struct SettingsBody {
 async fn save_settings(State(a): State<App>, h: HeaderMap, Json(mut b): Json<SettingsBody>) -> Api {
     let _analysis = a.analysis_lock.lock().await;
     let _config = a.config_lock.lock().await;
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     crate::integrations::validate_settings(&b.settings)?;
     let old = a.settings.read().await.clone();
     b.settings.recipient_verified =
@@ -663,12 +625,12 @@ struct AiConnectBody {
     key: String,
 }
 async fn ai_connect(State(a): State<App>, h: HeaderMap, Json(p): Json<AiConnectBody>) -> Api {
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     Ok(Json(crate::ai::connect(&a, &p.provider, &p.key).await?))
 }
 async fn connection_test(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) -> Api {
     let _config = a.config_lock.lock().await;
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     let kind = p["kind"].as_str().unwrap_or("");
     let s = a.settings.read().await.clone();
     match kind {
@@ -707,7 +669,7 @@ async fn connection_test(State(a): State<App>, h: HeaderMap, Json(p): Json<Value
 }
 async fn recipient_start(State(a): State<App>, h: HeaderMap) -> Api {
     let _config = a.config_lock.lock().await;
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     let s = a.settings.read().await.clone();
     if s.email_transport == "smtp" {
         return Ok(Json(crate::smtp::start_verification(&a, &s).await?));
@@ -722,7 +684,7 @@ async fn recipient_start(State(a): State<App>, h: HeaderMap) -> Api {
 }
 async fn recipient_verify(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) -> Api {
     let _config = a.config_lock.lock().await;
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     let mut s = a.settings.read().await.clone();
     let result = if s.email_transport == "smtp" {
         crate::smtp::verify(&a.store, &s, p["code"].as_str().unwrap_or("")).await?;
@@ -749,14 +711,14 @@ async fn notifications(State(a): State<App>) -> Api {
     Ok(Json(json!({"items":rows,"limit_per_day":60})))
 }
 async fn test_email(State(a): State<App>, h: HeaderMap) -> Api {
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     let s = a.settings.read().await;
     ensure!(
         crate::smtp::enabled(&s),
         "Choose and configure an email connection first"
     );
     ensure!(s.recipient_verified, "Verify your email address first");
-    a.store.enqueue(format!("test:{}",uuid::Uuid::new_v4()),"email".into(),json!({"alias":s.alias,"title":"Connection test","summary":"Metric Owl test notification.","recommendation":"This is not an alert."})).await?;
+    a.store.enqueue(format!("test:{}",uuid::Uuid::new_v4()),"email".into(),json!({"kind":"test","alias":s.alias,"title":"Connection test","summary":"Metric Owl test notification.","recommendation":"This is not an alert.","at":guard_core::now()})).await?;
     Ok(Json(
         json!({"ok":true,"message":"Test message queued. Check the queue for delivery status."}),
     ))
@@ -777,7 +739,7 @@ async fn mcp_connection(State(a): State<App>) -> Api {
 }
 async fn create_client(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>) -> Api {
     let _config = a.config_lock.lock().await;
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     let name = p["name"].as_str().unwrap_or("Agent").to_owned();
     ensure!(
         !name.trim().is_empty() && name.len() <= 100 && !name.chars().any(char::is_control),
@@ -835,6 +797,61 @@ async fn create_client(State(a): State<App>, h: HeaderMap, Json(p): Json<Value>)
     }
     Ok(Json(response))
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClientPermissions {
+    scopes: Vec<String>,
+}
+async fn update_client_permissions(
+    State(a): State<App>,
+    h: HeaderMap,
+    Path(id): Path<String>,
+    Json(p): Json<ClientPermissions>,
+) -> Api {
+    let _config = a.config_lock.lock().await;
+    a.auth.require_session(&cookie(&h)).await?;
+    ensure!(
+        uuid::Uuid::parse_str(&id)?.to_string() == id,
+        "Invalid client ID"
+    );
+    ensure!(
+        !p.scopes.is_empty()
+            && p.scopes.len() <= crate::mcp::TOOLS.len()
+            && p.scopes
+                .iter()
+                .all(|s| crate::mcp::TOOLS.contains(&s.as_str())),
+        "Invalid read permissions"
+    );
+    let scopes: Vec<_> = p
+        .scopes
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let encoded = serde_json::to_string(&scopes)?;
+    a.store
+        .write(move |db| {
+            let tx = db.transaction()?;
+            ensure!(
+                tx.execute(
+                    "UPDATE mcp_clients SET scopes=?1 WHERE id=?2 AND revoked=0",
+                    params![encoded, id]
+                )? == 1,
+                "Active connection not found"
+            );
+            tx.execute(
+                "INSERT INTO audit(at,actor,action) VALUES(?1,'administrator',?2)",
+                params![
+                    guard_core::now(),
+                    format!("MCP read permissions updated: {id}")
+                ],
+            )?;
+            tx.commit()?;
+            Ok(())
+        })
+        .await?;
+    Ok(Json(json!({"ok":true,"scopes":scopes})))
+}
 async fn mcp_client_configuration(
     State(a): State<App>,
     Path(id): Path<String>,
@@ -862,7 +879,7 @@ async fn mcp_client_configuration(
 }
 async fn revoke_client(State(a): State<App>, h: HeaderMap, Path(id): Path<String>) -> Api {
     let _config = a.config_lock.lock().await;
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     ensure!(
         uuid::Uuid::parse_str(&id)?.to_string() == id,
         "Invalid MCP client ID"
@@ -881,13 +898,23 @@ async fn revoke_client(State(a): State<App>, h: HeaderMap, Path(id): Path<String
     ))
 }
 async fn security(State(a): State<App>) -> Api {
-    let sessions=a.store.read(|c|{let mut s=c.prepare("SELECT created,last FROM sessions WHERE created>?1 AND last>?2 ORDER BY created DESC LIMIT 100")?;let now=guard_core::now();Ok(s.query_map(params![now-43200.,now-1800.],|r|Ok(json!({"created":r.get::<_,f64>(0)?,"last":r.get::<_,f64>(1)?})))?.collect::<rusqlite::Result<Vec<_>>>()?)}).await?;
+    let sessions = a
+        .store
+        .read(|c| {
+            let mut s =
+                c.prepare("SELECT created,last FROM sessions ORDER BY created DESC LIMIT 100")?;
+            Ok(s.query_map([], |r| {
+                Ok(json!({"created":r.get::<_,f64>(0)?,"last":r.get::<_,f64>(1)?}))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+        .await?;
     Ok(Json(
         json!({"sessions":sessions,"storage_bytes":a.store.size_bytes(),"quota_bytes":a.settings.read().await.quota_bytes,"retention_warning":a.store.get("retention_warning").await?,"errors":*a.errors.read().await,"mfa_required":a.auth.mfa_required().await?,"access":if a.web_access.public_origin().is_some(){"HTTPS + loopback + SSH"}else{"loopback + SSH"},"version":env!("CARGO_PKG_VERSION")}),
     ))
 }
 async fn revoke_sessions(State(a): State<App>, h: HeaderMap) -> Api {
-    a.auth.require_step_up(&cookie(&h)).await?;
+    a.auth.require_session(&cookie(&h)).await?;
     a.store
         .write(|c| {
             c.execute("DELETE FROM sessions", [])?;
@@ -947,7 +974,7 @@ mod cookie_tests {
     #[test]
     fn public_session_cookie_is_secure_and_host_bound() {
         for value in [
-            "guard_session=token; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200",
+            "guard_session=token; HttpOnly; SameSite=Strict; Path=/",
             "guard_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
         ] {
             let mut response = ().into_response();

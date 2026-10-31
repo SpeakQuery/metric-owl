@@ -1,0 +1,36 @@
+name: Validate published Linux installer
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published versioned release to install on a disposable runner
+        required: true
+        default: v0.1.0-preview.10
+permissions:
+  contents: read
+concurrency:
+  group: metric-owl-published-install-validation
+  cancel-in-progress: false
+jobs:
+  ubuntu-install-recover-purge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Install isolated test driver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-pexpect
+      - name: Exercise public bootstrap, root recovery, reinstall and purge
+        env:
+          METRIC_OWL_TEST_TAG: ${{ inputs.tag }}
+        run: /usr/bin/python3 scripts/test-release-install.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: published-installer-acceptance
+          path: artifacts/validation/published-install/*.json
+          if-no-files-found: ignore
+          retention-days: 7

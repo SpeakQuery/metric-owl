@@ -18,6 +18,9 @@ try {
     await page.evaluate(()=>document.fonts.ready);
     assert.equal(await page.locator('html').getAttribute('lang'),'en');
     assert.equal(await page.locator('h1').count(),1);
+     assert.equal(await page.getByRole('heading',{name:'BUILT IN RUST.',exact:true}).count(),1);
+     assert.equal(await page.locator('.rust-benefits li').count(),6);
+     assert.equal(await page.locator('.rust-hero-label').getAttribute('href'),'#built-in-rust');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,`Overflow at ${width}`);
     assert.equal(await page.locator('img').evaluateAll(imgs=>imgs.filter(i=>i.getAttribute('src')&&!i.loading).every(i=>i.complete&&i.naturalWidth>0)),true);
     if(width===390||width===1440)await page.screenshot({path:`artifacts/screenshots/website/home-${width}.png`,fullPage:true,animations:'disabled'});
@@ -28,7 +31,7 @@ try {
   assert.equal(await page.locator('.menu-toggle').getAttribute('aria-expanded'),'true');
   await page.locator('#main-nav').getByRole('link',{name:'Product',exact:true}).click();
   assert.equal(await page.locator('.menu-toggle').getAttribute('aria-expanded'),'false');
-  for(const name of ['Alert rules','MCP connections','Light theme','Overview']) {
+  for(const name of ['Alert rules','Server AI chat','MCP connections','Light theme','Overview']) {
     await page.getByRole('tab',{name,exact:true}).click();
     await page.locator('#tour-image').evaluate(img=>img.decode());
     assert.equal(await page.getByRole('tab',{name,exact:true}).getAttribute('aria-selected'),'true');
@@ -45,6 +48,12 @@ try {
   assert.match(await licenseAnswer.textContent(), /independent installations on multiple servers/);
   assert.equal((await page.locator('body').textContent()).includes('remains proprietary'),false);
   result.checks.push('Apache-2.0 free edition and independent-installation copy');
+  assert.match(await page.locator('#intelligence').textContent(), /Ten separately scoped read tools/);
+  assert.match(await page.locator('#intelligence').textContent(), /No separate MCP client is needed/);
+  assert.equal(await page.locator('.provider-list span').count(),6);
+  const mcpBilling = page.locator('.faq-list details').filter({has:page.getByText('Does MCP use the Grok key saved on my server?',{exact:true})});
+  assert.match(await mcpBilling.textContent(), /does not call the server’s Grok connection/);
+  result.checks.push('six named AI providers and direct Server AI chat');
   await page.getByText('Do I need an AI key to use Metric Owl?',{exact:true}).click();
   assert.equal(await page.locator('.faq-list details').first().getAttribute('open'),'');
   result.checks.push('mobile navigation','all screenshot tabs','keyboard tabs','image dialog and Escape','FAQ expand');
@@ -76,9 +85,20 @@ try {
   assert.equal(await page.locator('input,select').count(),0);
   await page.context().grantPermissions(['clipboard-read','clipboard-write']);
   await page.getByRole('button',{name:'Copy command',exact:true}).click();
-  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.9/scripts/bootstrap-linux.sh | sudo bash');
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.10/scripts/bootstrap-linux.sh | sudo bash');
   await page.screenshot({path:'artifacts/screenshots/website/quick-start-simple.png',fullPage:true,animations:'disabled'});
+  await page.goto(base+'/',{waitUntil:'networkidle'});
+  await page.getByRole('button',{name:'Copy install command',exact:true}).click();
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.10/scripts/bootstrap-linux.sh | sudo bash');
+  result.checks.push('homepage one-line installer copy');
   await page.goto(base+'/docs/advanced.html',{waitUntil:'networkidle'});
+  assert.match(await page.locator('#network-access').textContent(), /Public plaintext HTTP/);
+  assert.match(await page.locator('#server-ai').textContent(), /20 provider attempts per UTC day/);
+  assert.match(await page.locator('#mcp').locator('..').textContent(), /ten tools/);
+  assert.match(await page.locator('#account-recovery').textContent(), /root/);
+  assert.match(await page.locator('#uninstall').textContent(), /Clean removal including the database/);
+  assert.equal(await page.locator('[data-copy-value="sudo bash /usr/share/doc/server-guard/recover-admin.sh --show-username"]').count(),1);
+  assert.equal(await page.locator('[data-copy-value="sudo bash /usr/share/doc/server-guard/uninstall-linux.sh --purge"]').count(),1);
   await page.locator('.ssh-fallback summary').click();
   assert.equal(await page.locator('[data-copy="ssh-tunnel"]').isDisabled(),true);
   await page.locator('#server-host').fill('203.0.113.44');

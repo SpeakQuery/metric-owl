@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix='guard-integration-') as temp:
         assert connection['key_variable']=='GUARD_MCP_KEY' and 'key' not in connection
         try:urllib.request.urlopen(origin+'/api/v1/mcp/connection');raise AssertionError('MCP configuration exposed without login')
         except urllib.error.HTTPError as e:assert e.code==401
-        s=request('settings')['settings'];s.update(relay_url=f'http://127.0.0.1:{relay_port}',recipient='integration@example.invalid')
+        s=request('settings')['settings'];s.update(email_transport='relay',relay_url=f'http://127.0.0.1:{relay_port}',recipient='integration@example.invalid')
         request('settings',{'settings':s,'keys':{'relay':relay_key}},'PUT')
         assert request('connections/test',{'kind':'relay'})['ok']
         try:request('notifications/test',{},'POST');raise AssertionError('Unverified recipient accepted')
@@ -137,10 +137,10 @@ with tempfile.TemporaryDirectory(prefix='guard-integration-') as temp:
         init=mcp_call({'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-11-25','capabilities':{},'clientInfo':{'name':'acceptance','version':'1'}}})
         assert 'result' in init,init
         assert init['result']['serverInfo']['name']=='Metric Owl'
-        assert 'reports in English' in init['result']['instructions']
+        assert "Reply concisely in the user's language" in init['result']['instructions']
         bridge.stdin.write(json.dumps({'jsonrpc':'2.0','method':'notifications/initialized'})+'\n');bridge.stdin.flush()
         tools=mcp_call({'jsonrpc':'2.0','id':2,'method':'tools/list','params':{}})
-        names={x['name'] for x in tools['result']['tools']};assert names=={'server_info','current_metrics','history','list_incidents','incident_detail','log_summary'},names
+        names={x['name'] for x in tools['result']['tools']};assert names=={'server_info','current_metrics','history','list_incidents','incident_detail','log_summary','metric_report','process_history','monitored_sources','monitoring_health'},names
         result=mcp_call({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'server_info','arguments':{}}});assert 'result' in result,result
         # Synthetic history is written only to this temporary test-owned database.
         # Exercise real stdio MCP for a complete 24-hour table and aligned CPU/RAM peaks.

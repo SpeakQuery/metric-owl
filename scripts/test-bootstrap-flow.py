@@ -143,7 +143,7 @@ class BootstrapFlowTests(unittest.TestCase):
             'sys.argv = [sys.argv[0], "configure", *sys.argv[1:]]\n'
             'runpy.run_path(os.environ["FLOW_HELPER"], run_name="__main__")\n')
         (self.assets / "server-guard-linux-amd64").write_text("fixture binary\n")
-        for name in ("uninstall-linux.sh", "connection-hints.sh", "server-guard.service",
+        for name in ("uninstall-linux.sh", "recover-admin.sh", "manage-installation.py", "connection-hints.sh", "server-guard.service",
                      "LICENSE", "BINARY-LICENSE.txt", "THIRD-PARTY-NOTICES.txt"):
             (self.assets / name).write_text("isolated fixture\n")
         self.metadata = {"version": self.version, "source_commit": "a" * 40,

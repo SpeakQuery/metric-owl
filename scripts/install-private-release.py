@@ -13,7 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-ASSETS = ['SHA256SUMS','server-guard-linux-amd64','install-linux.sh','show-setup.sh',
+ASSETS = ['SHA256SUMS','server-guard-linux-amd64','install-linux.sh','uninstall-linux.sh','recover-admin.sh','manage-installation.py','show-setup.sh',
           'connection-hints.sh','configure-https.py','server-guard.service','LICENSE','BINARY-LICENSE.txt',
           'THIRD-PARTY-NOTICES.txt','release-metadata.json']
 ALLOWED_HOSTS = {'release-assets.githubusercontent.com','objects.githubusercontent.com','objects-origin.githubusercontent.com'}
@@ -55,7 +55,7 @@ try:
  if len(raw)>128*1024:raise ValueError('Asset map exceeded its size limit.')
  request=json.loads(raw)
  assets=request['assets']
- required={'SHA256SUMS','server-guard-linux-amd64','install-linux.sh','show-setup.sh','connection-hints.sh','configure-https.py','server-guard.service','LICENSE','BINARY-LICENSE.txt','THIRD-PARTY-NOTICES.txt','release-metadata.json'}
+ required={'SHA256SUMS','server-guard-linux-amd64','install-linux.sh','uninstall-linux.sh','recover-admin.sh','manage-installation.py','show-setup.sh','connection-hints.sh','configure-https.py','server-guard.service','LICENSE','BINARY-LICENSE.txt','THIRD-PARTY-NOTICES.txt','release-metadata.json'}
  if set(assets)!=required:raise ValueError('Unexpected release asset set.')
  with tempfile.TemporaryDirectory(prefix='metric-owl-private-') as directory:
   stage=pathlib.Path(directory)
@@ -81,12 +81,12 @@ try:
   for name in required-{'SHA256SUMS'}:
    if hashlib.sha256((stage/name).read_bytes()).hexdigest()!=sums.get(name):raise ValueError('Release checksum validation failed.')
   metadata=json.loads((stage/'release-metadata.json').read_text())
-  if metadata.get('version')!=request['version'] or metadata.get('source_commit')!=request['commit'] or metadata.get('os')!='ubuntu' or metadata.get('os_version')!='24.04' or metadata.get('architecture')!='x86_64':raise ValueError('Release provenance or platform metadata does not match.')
+  if metadata.get('version')!=request['version'] or metadata.get('source_commit')!=request['commit'] or metadata.get('os')!='linux' or metadata.get('libc')!='musl' or metadata.get('linkage')!='static' or 'ubuntu-24.04' not in metadata.get('platforms',[]) or metadata.get('architecture')!='x86_64':raise ValueError('Release provenance or platform metadata does not match.')
   for folder in ['scripts','packaging/systemd','release']:(stage/folder).mkdir(parents=True)
-  for name in ['install-linux.sh','show-setup.sh','connection-hints.sh','configure-https.py']:shutil.move(stage/name,stage/'scripts'/name)
+  for name in ['install-linux.sh','uninstall-linux.sh','recover-admin.sh','manage-installation.py','show-setup.sh','connection-hints.sh','configure-https.py']:shutil.move(stage/name,stage/'scripts'/name)
   shutil.move(stage/'server-guard.service',stage/'packaging/systemd/server-guard.service')
   shutil.move(stage/'server-guard-linux-amd64',stage/'release/server-guard')
-  for name in ['LICENSE','BINARY-LICENSE.txt','THIRD-PARTY-NOTICES.txt']:shutil.move(stage/name,stage/'release'/name)
+  for name in ['LICENSE','BINARY-LICENSE.txt','THIRD-PARTY-NOTICES.txt','release-metadata.json']:shutil.move(stage/name,stage/'release'/name)
   (stage/'release/SHA256SUMS').write_text(sums['server-guard-linux-amd64']+'  server-guard\n')
   print('Private GitHub assets downloaded directly over HTTPS; every required checksum passed.',flush=True)
   print('Release: '+request['version']+' | source commit: '+request['commit'],flush=True)
@@ -104,7 +104,7 @@ def gh_json(path):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo',default='SpeakQuery/metric-owl')
-    parser.add_argument('--tag',default='v0.1.0-preview.3')
+    parser.add_argument('--tag',default='v0.1.0-preview.10')
     parser.add_argument('--host',required=True,help='Authorized root SSH target, such as root@YOUR_SERVER_IP')
     parser.add_argument('--port',type=int,default=22)
     parser.add_argument('--control')

@@ -1,9 +1,11 @@
 mod ai;
+mod analysis;
 mod api;
 #[cfg(test)]
 mod api_email_tests;
 mod auth;
 mod boot;
+mod chat;
 mod collect;
 mod diagnostics;
 mod discovery;
@@ -12,6 +14,7 @@ mod docker_helper;
 mod integrations;
 mod mcp;
 mod probes;
+mod recovery;
 mod smtp;
 mod targets;
 mod web_access;
@@ -53,6 +56,12 @@ enum Command {
     ResetSetup,
     /// Create the first administrator from bounded JSON stdin; MFA can be enabled later.
     PrepareAdmin,
+    /// Recover an existing account locally as root. Passwords are read from a hidden terminal prompt.
+    RecoverAdmin {
+        /// Display the administrator username without changing the account.
+        #[arg(long)]
+        show_username: bool,
+    },
     ReportJob {
         #[arg(long)]
         id: String,
@@ -109,9 +118,9 @@ impl Default for Settings {
             recipient: String::new(),
             recipient_verified: false,
             webhook_url: String::new(),
-            ai_provider: "openai".into(),
+            ai_provider: "xai".into(),
             ai_model: String::new(),
-            ai_base_url: "https://api.groq.com/openai/v1".into(),
+            ai_base_url: "https://api.x.ai/v1".into(),
             ai_auto: false,
         }
     }
@@ -143,6 +152,9 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter("server_guard=info,guard_core=info")
         .init();
     let cli = Cli::parse();
+    if let Some(Command::RecoverAdmin { show_username }) = &cli.command {
+        return recovery::run(&cli.data_dir, *show_username).await;
+    }
     if let Some(Command::ReportJob { id, state }) = &cli.command {
         return probes::report_job(&cli.data_dir, id, state).await;
     }

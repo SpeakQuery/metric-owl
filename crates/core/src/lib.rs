@@ -1,4 +1,5 @@
 pub mod aggregate;
+pub mod email;
 pub mod model;
 pub mod redact;
 pub mod rules;

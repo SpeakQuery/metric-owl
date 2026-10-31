@@ -95,6 +95,24 @@ pub(crate) fn disk_defaults_for_partition(id: &str, total: u64) -> Vec<Rule> {
     }
     rules
 }
+pub(crate) fn resource_leaders(
+    rows: &[Process],
+    cpu_count: usize,
+    memory_count: usize,
+) -> Vec<Process> {
+    let mut by_cpu = rows.to_vec();
+    by_cpu.sort_by(|a, b| b.cpu.unwrap_or(-1.).total_cmp(&a.cpu.unwrap_or(-1.)));
+    let mut selected: Vec<_> = by_cpu.into_iter().take(cpu_count).collect();
+    let mut by_memory = rows.to_vec();
+    by_memory.sort_by(|a, b| b.memory.unwrap_or(-1.).total_cmp(&a.memory.unwrap_or(-1.)));
+    for p in by_memory.into_iter().take(memory_count) {
+        if !selected.iter().any(|s| s.id == p.id) {
+            selected.push(p);
+        }
+    }
+    selected.sort_by(|a, b| b.cpu.unwrap_or(-1.).total_cmp(&a.cpu.unwrap_or(-1.)));
+    selected
+}
 pub fn disk_defaults() -> anyhow::Result<Vec<Rule>> {
     let disks = Disks::new_with_refreshed_list()?;
     Ok(disks
@@ -220,8 +238,7 @@ async fn run(app: App) -> anyhow::Result<()> {
                 inventory.services = crate::discovery::services(&process_rows);
                 inventory.services_checked_at = Some(utc);
             }
-            process_rows.sort_by(|a, b| b.cpu.unwrap_or(-1.).total_cmp(&a.cpu.unwrap_or(-1.)));
-            process_rows.truncate(25);
+            process_rows = resource_leaders(&process_rows, 20, 5);
         }
         if n.is_multiple_of(15)
             && let Some(ds) = &mut disks
@@ -306,6 +323,11 @@ async fn run(app: App) -> anyhow::Result<()> {
                 "disk_free",
                 d.used_percent.value.map(|_| d.available),
             ));
+            values.push((
+                d.id.clone(),
+                "disk_total",
+                d.used_percent.value.map(|_| d.total),
+            ));
         }
         for diagnostic in &diagnostic_rows {
             values.push((
@@ -362,6 +384,16 @@ async fn run(app: App) -> anyhow::Result<()> {
             }
         }
         let rules = app.rules.read().await.clone();
+        if n >= 5
+            && n.is_multiple_of(60)
+            && app.store.size_bytes() < app.settings.read().await.quota_bytes
+        {
+            let selected = resource_leaders(&process_rows, 5, 5);
+            if let Err(e) = app.store.process_snapshot(utc, selected).await {
+                app.error(format!("Unable to save process snapshot: {e}"))
+                    .await;
+            }
+        }
         let mut events = vec![];
         for (metric, value) in [
             ("cpu", cpu.value),

@@ -4,7 +4,7 @@ import { api } from './lib';
 import './AiConnection.css';
 
 type State = { providers: { id: string; name: string }[]; selected_provider: string | null; key_saved: boolean; verified: boolean };
-export default function AiConnection({ onConnected, onReauthenticate }: { onConnected: () => void; onReauthenticate: () => void }) {
+export default function AiConnection({ onConnected }: { onConnected: () => void }) {
   const [state, setState] = useState<State | null>(null);
   const [provider, setProvider] = useState('');
   const [key, setKey] = useState('');
@@ -33,7 +33,6 @@ export default function AiConnection({ onConnected, onReauthenticate }: { onConn
     } catch (error) {
       const text = (error as Error).message;
       setFeedback({ ok: false, text });
-      if (/re-authenticat|verify your identity again/i.test(text)) onReauthenticate();
     } finally { setBusy(false); }
   }
   return <section className="panel ai-connect">
@@ -44,11 +43,11 @@ export default function AiConnection({ onConnected, onReauthenticate }: { onConn
         {!provider && <option value="" disabled>Choose a provider</option>}
         {state.providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select></label>
-      <label htmlFor="ai-api-key">API key<div className="input-status"><input id="ai-api-key" aria-label="API key" type="password" autoComplete="new-password" spellCheck={false} autoCapitalize="none" maxLength={4096} value={key} disabled={busy} required={!saved} onChange={event => { setKey(event.target.value); setFeedback(null); }} placeholder={saved ? 'Saved securely · paste a new key to replace it' : 'Paste your provider’s API key'} />{saved && <span className="badge good">Saved</span>}</div></label>
+      <label htmlFor="ai-api-key">API key<div className="input-status"><input id="ai-api-key" aria-label="API key" type="password" autoComplete="new-password" spellCheck={false} autoCapitalize="none" maxLength={4096} value={key} disabled={busy} required={!saved} onChange={event => { setKey(event.target.value); setFeedback(null); }} placeholder={saved ? 'Saved securely · paste a new key to replace it' : 'Paste your provider’s API key'} />{saved && <span className="badge good">{connected ? 'Connected' : 'Saved'}</span>}</div></label>
       {state.key_saved && !state.selected_provider && <p className="muted">Your existing custom connection is kept until you connect a provider here.</p>}
       <button className="primary ai-connect-submit" disabled={busy || !provider || (!key.trim() && !saved)} type="submit">{connected ? <CheckCircle2 size={17} /> : <PlugZap size={17} />}{busy ? 'Connecting…' : connected ? 'Check connection' : 'Connect'}</button>
       <p className="ai-connect-note">Connecting sends a short test message to your provider. Its API usage rates apply.</p>
-      {connected && <div className="ai-connect-ready"><CheckCircle2 size={18} /><span>Ready. Open an event and choose <strong>Analyze evidence with AI</strong>.</span></div>}
+      {connected && <div className="ai-connect-ready"><CheckCircle2 size={18} /><span><strong>Connected.</strong> Open an event and choose <strong>Analyze evidence with AI</strong>.</span></div>}
     </form>}
     <div className="ai-connect-footer"><ShieldCheck size={17} /><span>Your key is encrypted on this server. AI can analyze events, with no permission to change your server.</span></div>
   </section>;

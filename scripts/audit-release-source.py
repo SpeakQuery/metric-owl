@@ -12,7 +12,9 @@ ROOT_FILES={'.gitignore','.node-version','Cargo.toml','Cargo.lock','rust-toolcha
             'README.md','CONTRIBUTING.md','LICENSE','BINARY-LICENSE.txt'}
 PREFIXES=('crates/','web/','scripts/','packaging/','.github/','docs/','website/')
 EXCLUDED_PREFIXES=('website/deploy/preview/',)
-EXCLUDED_FILES={'website/deploy/VERIFIED.md','docs/NEXT_FEATURES.md','docs/COMPETITOR_RESEARCH_2026-10-31.md'}
+EXCLUDED_FILES={'website/deploy/VERIFIED.md','docs/NEXT_FEATURES.md','docs/COMPETITOR_RESEARCH_2026-10-31.md',
+                'docs/MCP_15_QUESTION_RESULTS_2026-11-01.md','docs/MCP_QUESTION_AUDIT_2026-10-31.md',
+                'docs/UI_UX_REVIEW_2026-10-31.md','docs/SITE_RESOURCE_RESEARCH_2026-11-01.md'}
 FORBIDDEN_PARTS={'node_modules','target','dist','artifacts','.local-data','.test-data',
                  '__pycache__','.git','playwright-report','test-results'}
 PATTERNS={

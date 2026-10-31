@@ -18,6 +18,250 @@ const PASSWORD: &str = "isolated-password-only-test";
 const SMTP_PASSWORD: &str = "smtp-private-fixture-credential";
 
 #[tokio::test]
+async fn mcp_permission_edits_require_session_csrf_and_preserve_key_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = fixture(dir.path()).await;
+    let router = api::router(app.clone());
+    let id = "c53d79dd-2584-46aa-984d-6949797b033a";
+    app.store.write(move|db|{db.execute("INSERT INTO mcp_clients(id,name,hash,scopes) VALUES(?1,'fixture-client','unchanged-hash','[\"history\"]')",[id])?;Ok(())}).await.unwrap();
+    let path = format!("mcp/clients/{id}");
+    assert_eq!(
+        call(
+            &router,
+            Method::PUT,
+            &path,
+            Some(json!({"scopes":["history","metric_report"]})),
+            "",
+            ""
+        )
+        .await
+        .0,
+        401
+    );
+    let (_, headers, login) = call(
+        &router,
+        Method::POST,
+        "auth/login",
+        Some(json!({"username":"owner","password":PASSWORD})),
+        "",
+        "",
+    )
+    .await;
+    let cookie = headers["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap();
+    let csrf = login["session"]["csrf"].as_str().unwrap();
+    assert_eq!(
+        call(
+            &router,
+            Method::PUT,
+            &path,
+            Some(json!({"scopes":["history","metric_report"]})),
+            cookie,
+            ""
+        )
+        .await
+        .0,
+        403
+    );
+    assert_eq!(
+        call(
+            &router,
+            Method::PUT,
+            &path,
+            Some(json!({"scopes":["execute"]})),
+            cookie,
+            csrf
+        )
+        .await
+        .0,
+        400
+    );
+    assert_eq!(
+        call(
+            &router,
+            Method::PUT,
+            &path,
+            Some(json!({"scopes":["history","metric_report"]})),
+            cookie,
+            csrf
+        )
+        .await
+        .0,
+        200
+    );
+    let (hash, scopes) = app
+        .store
+        .read(move |db| {
+            Ok(db.query_row(
+                "SELECT hash,scopes FROM mcp_clients WHERE id=?1",
+                [id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(hash, "unchanged-hash");
+    assert_eq!(
+        serde_json::from_str::<Vec<String>>(&scopes).unwrap(),
+        vec!["history", "metric_report"]
+    );
+    app.store
+        .write(move |db| {
+            db.execute("UPDATE mcp_clients SET revoked=1 WHERE id=?1", [id])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        call(
+            &router,
+            Method::PUT,
+            &path,
+            Some(json!({"scopes":["history"]})),
+            cookie,
+            csrf
+        )
+        .await
+        .0,
+        400
+    );
+}
+
+#[tokio::test]
+async fn browser_session_survives_reload_retention_and_elapsed_time_until_logout() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = fixture(dir.path()).await;
+    let router = api::router(app.clone());
+    let (_, _, anonymous) = call(&router, Method::GET, "auth/status", None, "", "").await;
+    assert!(anonymous["session"].is_null());
+    assert_eq!(
+        call(&router, Method::GET, "security", None, "", "").await.0,
+        401
+    );
+    let (status, headers, login) = call(
+        &router,
+        Method::POST,
+        "auth/login",
+        Some(json!({"username":"owner","password":PASSWORD})),
+        "",
+        "",
+    )
+    .await;
+    assert_eq!(status, 200);
+    let raw = headers["set-cookie"].to_str().unwrap();
+    assert!(raw.starts_with("__Host-guard_session="));
+    for attribute in ["HttpOnly", "Secure", "SameSite=Strict", "Path=/"] {
+        assert!(raw.contains(attribute));
+    }
+    for attribute in ["Max-Age", "Expires", "Domain="] {
+        assert!(!raw.contains(attribute));
+    }
+    let cookie = raw.split(';').next().unwrap();
+    let csrf = login["session"]["csrf"].as_str().unwrap();
+    // Cross the former 5-minute verification, 30-minute idle and 12-hour limits.
+    app.store
+        .write(|db| {
+            db.execute(
+                "UPDATE sessions SET created=?1,last=?1,step_up=0",
+                [guard_core::now() - 7. * 86400.],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    app.store.retain(guard_core::now()).await.unwrap();
+
+    // A new panel load restores the session and its original CSRF token. It also
+    // replaces a legacy persistent cookie with a browser-session cookie.
+    let (status, refreshed_headers, refreshed) =
+        call(&router, Method::GET, "auth/status", None, cookie, "").await;
+    assert_eq!(status, 200);
+    assert_eq!(refreshed["session"]["csrf"], csrf);
+    assert_eq!(refreshed_headers["set-cookie"], headers["set-cookie"]);
+    let (status, _, security) = call(&router, Method::GET, "security", None, cookie, "").await;
+    assert_eq!(status, 200);
+    assert_eq!(security["sessions"].as_array().unwrap().len(), 1);
+
+    let settings = app.settings.read().await.clone();
+    for token in ["", "csrf-from-another-session"] {
+        assert_eq!(
+            call(
+                &router,
+                Method::PUT,
+                "settings",
+                Some(json!({"settings":settings})),
+                cookie,
+                token,
+            )
+            .await
+            .0,
+            403
+        );
+    }
+    // Matching credentials and CSRF still cannot authorize a cross-origin write.
+    let evil = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/api/v1/settings")
+                .header("host", HOST)
+                .header("origin", "https://unrelated.example")
+                .header("x-forwarded-proto", "https")
+                .header("x-guard-proxy-token", PROXY)
+                .header("cookie", cookie)
+                .header("x-csrf-token", csrf)
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"settings":settings}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(evil.status().as_u16(), 403);
+    assert_eq!(
+        call(
+            &router,
+            Method::PUT,
+            "settings",
+            Some(json!({"settings":settings})),
+            cookie,
+            csrf,
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        call(&router, Method::POST, "auth/logout", None, cookie, "")
+            .await
+            .0,
+        403
+    );
+    let (status, logout_headers, _) =
+        call(&router, Method::POST, "auth/logout", None, cookie, csrf).await;
+    assert_eq!(status, 200);
+    assert!(
+        logout_headers["set-cookie"]
+            .to_str()
+            .unwrap()
+            .contains("Max-Age=0")
+    );
+    assert_eq!(
+        call(&router, Method::GET, "security", None, cookie, "")
+            .await
+            .0,
+        401
+    );
+    let (_, headers, status) = call(&router, Method::GET, "auth/status", None, cookie, "").await;
+    assert!(status["session"].is_null());
+    assert!(!headers.contains_key("set-cookie"));
+}
+
+#[tokio::test]
 async fn ai_connection_requires_session_csrf_and_matching_provider_credential() {
     let dir = tempfile::tempdir().unwrap();
     let app = fixture(dir.path()).await;
@@ -45,8 +289,8 @@ async fn ai_connection_requires_session_csrf_and_matching_provider_credential() 
         .unwrap();
     let csrf = login["session"]["csrf"].as_str().unwrap();
     let (_, _, catalog) = call(&router, Method::GET, "ai/providers", None, cookie, "").await;
-    assert_eq!(catalog["providers"].as_array().unwrap().len(), 10);
-    assert_eq!(catalog["selected_provider"], "groq");
+    assert_eq!(catalog["providers"].as_array().unwrap().len(), 6);
+    assert_eq!(catalog["selected_provider"], "xai");
     assert_eq!(catalog["verified"], false);
     let request = json!({"provider":"openai", "key":"synthetic-key"});
     assert_eq!(
@@ -113,10 +357,7 @@ async fn ai_connection_requires_session_csrf_and_matching_provider_credential() 
         400
     );
     assert_eq!(app.store.get("secret:ai").await.unwrap(), saved);
-    assert_eq!(
-        app.settings.read().await.ai_base_url,
-        "https://api.groq.com/openai/v1"
-    );
+    assert_eq!(app.settings.read().await.ai_base_url, "https://api.x.ai/v1");
 }
 
 pub(crate) async fn fixture(dir: &Path) -> App {
@@ -432,7 +673,7 @@ async fn ip_https_settings_secret_and_recipient_contract_without_external_servic
         .0,
         400
     );
-    // Sensitive settings and connection tests need recent password/MFA reauthentication.
+    // The initial login authorizes sensitive settings throughout this browser session.
     app.store
         .write(|c| {
             c.execute("UPDATE sessions SET step_up=0", [])?;
@@ -451,7 +692,7 @@ async fn ip_https_settings_secret_and_recipient_contract_without_external_servic
         )
         .await
         .0,
-        400
+        200
     );
     assert_eq!(
         call(

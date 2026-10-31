@@ -74,7 +74,8 @@ with tempfile.TemporaryDirectory(prefix='metric-owl-enrollment-') as temp:
         try:
             connection.request('POST' if body is not None else 'GET', '/api/v1/' + path, json.dumps(body) if body is not None else None, h)
             response = connection.getresponse()
-            return response.status, dict(response.getheaders()), json.loads(response.read())
+            payload = response.read()
+            return response.status, dict(response.getheaders()), json.loads(payload) if payload else None
         finally:
             connection.close()
     def ready():
@@ -100,11 +101,11 @@ with tempfile.TemporaryDirectory(prefix='metric-owl-enrollment-') as temp:
         cookie, csrf = headers['set-cookie'].split(';', 1)[0], login['session']['csrf']
         assert request('host', cookie=cookie)[0] == 200
         assert request('security', cookie=cookie)[2]['mfa_required'] is False
-        assert request('auth/reauth', credentials, cookie, csrf)[0] == 200
+        assert request('auth/reauth', credentials, cookie, csrf)[0] in (404, 405)
         assert request('auth/mfa/begin', {}, cookie)[0] == 403
         code, _, challenge = request('auth/mfa/begin', {}, cookie, csrf)
         assert code == 200 and challenge['uri'].startswith('otpauth://totp/')
-        checks.append('HTTPS password-only sign-in and reauthentication; secure cookie; no setup key or QR required')
+        checks.append('HTTPS password-only sign-in; no reauthentication endpoint; secure cookie; no setup key or QR required')
         code, _, finished = request('auth/mfa/finish', {'code':totp(challenge['secret'])}, cookie, csrf)
         assert code == 200 and len(finished['recovery_codes']) == 10
         assert request('host', cookie=cookie)[0] == 401
@@ -115,17 +116,17 @@ with tempfile.TemporaryDirectory(prefix='metric-owl-enrollment-') as temp:
         cookie, csrf = headers['set-cookie'].split(';', 1)[0], login['session']['csrf']
         assert request('security', cookie=cookie)[2]['mfa_required'] is True
         with sqlite3.connect(data / 'guard.sqlite') as db:
-            db.execute('UPDATE sessions SET step_up=0')
-        assert request('auth/mfa/disable', {}, cookie, csrf)[0] == 400
-        assert request('auth/reauth', credentials, cookie, csrf)[0] == 400
-        assert request('auth/reauth', {**credentials, 'code':finished['recovery_codes'][1]}, cookie, csrf)[0] == 200
+            db.execute('UPDATE sessions SET step_up=0,created=0,last=0')
+        assert request('host', cookie=cookie)[0] == 200
+        assert request('auth/mfa/disable', {}, cookie)[0] == 403
+        assert request('auth/mfa/disable', {}, '', csrf)[0] == 401
         assert request('auth/mfa/disable', {}, cookie, csrf)[0] == 200
         assert request('host', cookie=cookie)[0] == 401
         assert request('auth/status')[2]['mfa_required'] is False
         with sqlite3.connect(data / 'guard.sqlite') as db:
             after_disable = json.loads(db.execute("SELECT value FROM kv WHERE key='admin'").fetchone()[0])
             assert after_disable['mfa_enabled'] is False and after_disable['secret'] == '' and after_disable['recovery'] == []
-        checks.append('optional QR enables MFA and revokes sessions; disabling needs current MFA reauthentication and clears secrets/sessions')
+        checks.append('optional QR enables MFA and revokes sessions; session metadata age does not force Verify; disabling requires authentication and CSRF and clears secrets/sessions')
         code, _, _ = request('auth/login', credentials)
         assert code == 200
         assert prepare(credentials).returncode != 0

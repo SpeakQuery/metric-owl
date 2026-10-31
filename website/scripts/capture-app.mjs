@@ -43,15 +43,19 @@ try {
   });
   const rule=(id,name,metric,threshold,window_seconds=300,severity='warning')=>({id,name,source:'host',metric,operator:'>',threshold,window_seconds,fraction:.8,severity,recovery_threshold:threshold-5,recovery_seconds:120,enabled:true,notify:true});
   const balanced=[rule('cpu','Sustained high CPU','cpu',80),rule('cpu-critical','Critical CPU load','cpu',90,180,'critical'),rule('ram','Memory pressure','memory',90),rule('ram-critical','Critical memory pressure','memory',95,180,'critical')];
+  balanced.push({...rule('disk-warning','Main disk filling up','disk_used',85,30),source:'/',operator:'>=',fraction:1},{...rule('disk-critical','Main disk almost full','disk_used',95,30,'critical'),source:'/',operator:'>=',fraction:1});
   const presets=[{id:'balanced',name:'Balanced monitoring',description:'Reliable 3–5 minute defaults for CPU and memory.',rules:balanced},{id:'sensitive',name:'Sensitive monitoring',description:'Earlier alerts: 2-minute windows and lower thresholds.',rules:[rule('s1','Early CPU','cpu',70,120),rule('s2','Early RAM','memory',80,120)]},{id:'sustained',name:'Sustained load',description:'Alert when CPU stays high for 1 hour or memory for 30 minutes.',rules:[rule('l1','Sustained CPU','cpu',70,3600),rule('l2','Sustained RAM','memory',85,1800)]}];
-  const settings={settings:{alias:'production-01',recipient:'',recipient_verified:false,report_times:['09:00'],timezone:'UTC',instant:true,reports:true,recovery:true,relay_url:'',ai_provider:'openai',ai_base_url:'https://api.groq.com/openai/v1',ai_model:'',ai_auto:false,webhook_url:''},keys:{ai:false,relay:false,webhook:false}};
+  const settings={settings:{alias:'Example server',recipient:'',recipient_verified:false,report_times:['09:00'],timezone:'UTC',instant:true,reports:true,recovery:true,relay_url:'',ai_provider:'xai',ai_base_url:'https://api.groq.com/openai/v1',ai_model:'',ai_auto:false,webhook_url:''},keys:{ai:true,relay:false,webhook:false}};
   await page.route('**/api/v1/**',async route=>{
     const path=new URL(route.request().url()).pathname.replace('/api/v1/','');
+    if(path==='ai/chat'){const question=route.request().postDataJSON().question; const at=Date.now()/1000; return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({answer:question.includes('Son')?'Son 20 dakikada CPU ortalaması %34.1, bellek %58.2 idi. Ölçümlerin bir kısmı eksik; bu yüzden dönemin tamamı için kesin sonuç veremiyorum.':'Observed CPU averaged 34.1% during the last 3 hours. Memory remained near 58.2%. Measurements are missing for part of this period; no cause is established.',refused:false,charged:true,period:{from:at-(question.includes('3 hours')?10800:1200),to:at},usage:{used:2,limit:20,remaining:18,resets:'00:00 UTC'},label:'AI interpretation · verify important findings',data_notice:question.includes('Son')?'Bu dönemin ölçümleri eksik. Ölçülmeyen zamanlar bilinmiyor.':null})});}
     const data={
       'auth/status':{configured:true,session:{csrf:'public-demo-not-a-real-token'}},
-      host:{id:'demo-host',name:'production-01',os:'Ubuntu 24.04 LTS',cpu_model:'4-core virtual CPU',cores:4,memory_total:16*1024**3,version:'0.1.0'},
+      host:{id:'demo-host',name:'Example server',os:'Ubuntu 24.04 LTS',cpu_model:'4-core virtual CPU',cores:4,memory_total:16*1024**3,version:'0.1.0'},
+      'ai/providers':{providers:[{id:'xai',name:'xAI (Grok)'},{id:'openai',name:'OpenAI'},{id:'anthropic',name:'Anthropic (Claude)'},{id:'gemini',name:'Google Gemini'},{id:'deepseek',name:'DeepSeek'},{id:'mistral',name:'Mistral AI'}],selected_provider:'xai',key_saved:true,verified:true},
+      'ai/chat/status':{connected:true,key_saved:true,provider:{id:'xai',name:'xAI (Grok)'},usage:{used:2,limit:20,remaining:18,resets:'00:00 UTC'}}, targets:[],
       incidents:{items:[]},rules:balanced,'rules/presets':presets,settings,
-      'mcp/clients':[],'notifications':{items:[]},'mcp/connection':{command:'/usr/local/bin/server-guard',args:['--data-dir','/var/lib/server-guard','mcp'],key_variable:'GUARD_MCP_KEY',tools:['server_info','current_metrics','history','list_incidents','incident_detail','log_summary'],key_file_supported:true,suggested_transport:'ssh',ssh:{host:'203.0.113.10',user:'root',port:22}}
+      'mcp/clients':[],'notifications':{items:[]},'mcp/connection':{command:'/usr/local/bin/server-guard',args:['--data-dir','/var/lib/server-guard','mcp'],key_variable:'GUARD_MCP_KEY',tools:['server_info','current_metrics','history','list_incidents','incident_detail','log_summary','metric_report','process_history','monitored_sources','monitoring_health'],key_file_supported:true,suggested_transport:'ssh',ssh:{host:'203.0.113.10',user:'root',port:22}}
     }[path];
     await route.fulfill({status:data===undefined?404:200,contentType:'application/json',body:JSON.stringify(data??{error:'Not part of the screenshot fixture'})});
   });
@@ -61,16 +65,24 @@ try {
   await page.waitForTimeout(4300);
   await page.screenshot({path:output+'/dashboard.jpg',quality:90,type:'jpeg',animations:'disabled'});
   await page.getByRole('navigation').getByRole('button',{name:'Alert rules',exact:true}).click();
-  await page.getByRole('heading',{name:'Ready-made rule packs',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'Everyday protection',exact:true}).waitFor();
   await page.screenshot({path:output+'/rules.jpg',quality:90,type:'jpeg',animations:'disabled'});
+  await page.getByRole('button',{name:'Server AI',exact:true}).click();
+  await page.getByRole('textbox',{name:'Ask about this server',exact:true}).fill('What changed on this server in the last 3 hours?');
+  await page.getByRole('button',{name:'Send question',exact:true}).click();
+  await page.getByRole('log').getByText(/Observed CPU averaged/).waitFor();
+  await page.getByRole('textbox',{name:'Ask about this server',exact:true}).fill('Son 20 dakikada CPU ve bellek kullanımı nasıldı?');
+  await page.getByRole('button',{name:'Send question',exact:true}).click();
+  await page.getByRole('log').getByText(/Son 20 dakikada CPU ortalaması/).waitFor();
+  await page.screenshot({path:output+'/server-ai.jpg',quality:90,type:'jpeg',animations:'disabled'});
   await page.getByRole('button',{name:'Notifications & connections',exact:true}).click();
-  await page.getByRole('tab',{name:'MCP clients',exact:true}).click();
-  await page.getByRole('heading',{name:'Connect your AI agent',exact:true}).waitFor();
+  await page.getByRole('tab',{name:'External AI apps (MCP)',exact:true}).click();
+  await page.getByRole('heading',{name:'Connect an external AI app',exact:true}).waitFor();
   await page.getByRole('button',{name:'Create connection',exact:true}).waitFor();
   await page.screenshot({path:output+'/mcp.jpg',quality:90,type:'jpeg',fullPage:true,animations:'disabled'});
   await page.getByRole('button',{name:'Overview',exact:true}).click();
   await page.getByRole('button',{name:'Switch theme',exact:true}).click();
   await page.waitForTimeout(200);
   await page.screenshot({path:output+'/dashboard-light.jpg',quality:90,type:'jpeg',animations:'disabled'});
-  console.log('Captured four real application views using synthetic, non-sensitive data.');
+  console.log('Captured five real application views using synthetic, non-sensitive data.');
 } finally {await browser.close();server.close();}

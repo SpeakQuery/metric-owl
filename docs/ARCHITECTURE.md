@@ -17,6 +17,12 @@ flowchart LR
   Agent[External AI client] --> MCP[rmcp stdio bridge]
   MCP --> IPC[Scoped Unix IPC]
   IPC --> DB
+  UI --> Chat[Authenticated Server AI API]
+  Chat --> Evidence[Bounded read-only server context]
+  DB --> Evidence
+  Evidence --> Provider[Server-saved BYOK provider]
+  Provider --> Chat
+  ClientModel[Model selected in external AI client] --> Agent
 ```
 
 ## Directories
@@ -86,29 +92,73 @@ one ID.
 
 ## MCP historical questions
 
-MCP exposes stored data through six read-only tools; it is not limited to predefined
-alarm rules. An AI client can call `server_info` for the source ID, then `history`
-for `cpu` and `memory` over the same UTC range. A request for the last 24 hours
-normally returns minute summaries, subject to available history and retention.
-Each row includes time bounds, min/max, first/last, weighted sum, and observed seconds.
-The client can calculate averages and coverage, align both series, and present a
-table of increases, decreases, and coincident peaks.
+MCP exposes ten scoped, read-only tools through local or SSH stdio. There is no
+HTTP MCP endpoint or cross-server selector. `history` reads aggregates;
+`metric_report` adds weighted summaries, peak intervals, trends, optional
+period comparison and aligned related-metric analysis. `process_history`,
+`monitored_sources` and `monitoring_health` expose recorded snapshots, configured
+checks and collection/coverage health. Inventory and incident/log-summary tools
+complete the ten-tool allowlist. [Tool contract and permissions](MCP_CONNECTIONS.md)
 
-There is no dedicated correlation or root-cause tool in this release. Interpretation
-and table formatting belong to the requesting AI client. Correlation does not prove
-causation. Minute summaries cannot establish the exact second of a peak or reconstruct
-the exact duration above every possible threshold. Missing history must be reported
-as unavailable, not invented. A newly installed agent cannot provide 24 hours of
-real history before it has collected them. Queries are bounded to 366 days and
-2,000 points; the response states the selected resolution. See the integration test
-for isolated synthetic CPU/memory history fixtures.
+Metric windows are bounded to 366 days and 2,000 returned history points, subject
+to collected history, retention and response limits. Only source buckets wholly
+inside the requested window are used. Coverage, unknown intervals and invalid or
+overlapping records are explicit. A new installation cannot supply history from
+before collection began. A peak is an aggregate interval, not an exact second.
 
-## AI
+Process resource snapshots are collected prospectively about once per minute and
+retained for seven days; available incident-time observations can contribute.
+Their absence cannot be repaired from a current process list. The latest configured
+monitor state is not a continuous uptime history. Log summaries are latest-check
+counts, not arbitrary file reads or full historical searches.
 
-Reading metrics and evaluating thresholds do not call AI. Manual analysis sends
-bounded, redacted evidence from the selected incident. Existing automatic alarm
-classes are explained by known rules and therefore do not start AI requests.
-Automatic analysis is opt-in and uses a separate durable queue for new unexplained
-incident types. Critical notification delivery never waits for AI. Product prompts,
-notifications, and MCP descriptions use English; external clients may choose their
-own conversational language.
+The selected model in the **calling external AI client** interprets the tool
+results. MCP reads do not invoke the server's saved Grok/BYOK provider. The MCP
+key authorizes scoped reads; the client's model/account/billing are independent.
+Running that client on a Mac does not establish local model execution. Statistical
+co-movement and outliers remain descriptive, never root-cause certainty.
+
+## Server AI and incident explanations
+
+Reading metrics and evaluating rules do not call AI. **Server AI** is a manual,
+text-only authenticated browser API using the installation's existing verified
+BYOK connection. Six provider choices use automatic internal models/endpoints.
+The UI is English; chat replies follow Turkish or English questions and remain
+short. Natural-language periods select bounded context, defaulting to three hours.
+The chat-specific copy uses readable UTC labels on known time paths; numeric
+analysis/MCP fields, measured values, units and durations remain intact.
+
+The evidence builder reads only this server's fixed, bounded monitoring context:
+current readings, metric summaries, configured checks, data-health warnings,
+recent incidents and recorded process context. There are no model tools for
+commands, arbitrary files/URLs/SQL or server changes. Both evidence strings and
+prior assistant answers are untrusted data. Local request admission, redaction,
+strict input fields, context/output limits and independent coverage notices
+supplement the fixed data boundary. A system prompt is not that boundary.
+
+Chat permits 20 provider attempts per UTC day, one AI operation at a time, and
+bounded request/response time. Failed provider attempts count; local refusals do
+not. There is no automatic chat retry. Conversation is held only in the signed-in
+page state. [Chat contract and checks](SERVER_AI_CHAT.md)
+
+Manual incident analysis sends bounded, redacted event evidence through the same
+saved provider connection, with its own 10-request daily budget and cache. Automatic
+explanations are off by default and apply only to eligible unexplained important
+events when enabled; routine CPU/memory/disk triggers are explained by local rules.
+Critical notification delivery never waits for AI. Event prompts, notifications
+and MCP tool descriptions use English; chat can answer Turkish.
+
+## Sign-in and installation boundary
+
+The Rust listener remains on loopback behind the guided HTTPS proxy or an SSH
+forward. Guided installation creates a password-based account; MFA is optional.
+Manual first-time setup retains its private expiring key flow. Existing accounts
+cannot be replaced by rerunning setup. Browser-session cookies remain valid until
+explicit revocation/browser session handling; there is no fixed idle lifetime or
+five-minute step-up prompt. Origin, Host, session and CSRF checks still apply.
+Password/MFA changes revoke sessions. See [Security](SECURITY.md) and the root-only
+recovery/removal procedures in [Operations](OPERATIONS.md).
+
+Source, release artifact and deployment are separate states: code/tests establish
+implementation behavior; release metadata/checksums identify a packaged commit;
+service, TLS and browser acceptance establish the result on a specific host.

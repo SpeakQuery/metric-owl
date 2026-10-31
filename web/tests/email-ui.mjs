@@ -18,7 +18,7 @@ await new Promise(done=>server.listen(0,'127.0.0.1',done));
 const base=`http://127.0.0.1:${server.address().port}`;
 const browser=await chromium.launch();
 let settings={alias:'Example server',email_transport:'disabled',smtp_host:'',smtp_port:465,smtp_security:'tls',smtp_username:'',smtp_from:'',recipient:'',recipient_verified:false,relay_url:'',timezone:'UTC',report_times:['09:00'],instant:true,reports:true,recovery:true,ai_provider:'openai',ai_base_url:'',ai_model:'',webhook_url:''};
-let savedPassword=false, rejectConnection=true, requireReauth=false, testEmails=0;
+let savedPassword=false, rejectConnection=true, testEmails=0;
 const writes=[],checks=[],errors=[],external=[];
 try{
  const page=await browser.newPage({viewport:{width:1440,height:1050}});
@@ -31,7 +31,6 @@ try{
   if(path==='settings'){
    if(route.request().method()==='PUT'){
     const body=route.request().postDataJSON();writes.push(body);
-    if(requireReauth)return respond({error:'Please re-authenticate before changing sensitive settings.'},403);
     if(savedPassword&&(settings.smtp_host!==body.settings.smtp_host||settings.smtp_username!==body.settings.smtp_username)&&!body.keys.smtp)return respond({error:'Re-enter the SMTP password when changing the server or username.'},400);
     settings={...body.settings};if(body.keys.smtp)savedPassword=true;
     return respond({ok:true});
@@ -45,7 +44,6 @@ try{
   if(path==='recipients/start')return respond({message:'Verification message accepted by your SMTP provider. Check your mailbox.'});
   if(path==='recipients/verify'){settings.recipient_verified=true;return respond({ok:true})}
   if(path==='notifications/test'){assert.equal(settings.recipient_verified,true);testEmails++;return respond({message:'Test email queued. Provider acceptance does not confirm inbox delivery.'})}
-  if(path==='auth/reauth'){requireReauth=false;assert.equal(route.request().postDataJSON().code,'');return respond({ok:true})}
   const data={
    'auth/status':{configured:true,mfa_required:false,session:{csrf:'fixture'}},
    host:{name:'Example server',os:'Ubuntu 24.04',cores:2,memory_total:8*1024**3,version:'preview'},
@@ -90,13 +88,7 @@ try{
  await page.getByRole('button',{name:'Save SMTP settings',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('Re-enter the SMTP password');
  await page.getByLabel('SMTP password',{exact:true}).fill('Synthetic-test-only-secret');
- requireReauth=true;
- await page.getByRole('button',{name:'Save SMTP settings',exact:true}).click();
- await expect(page.getByRole('heading',{name:'Re-authenticate for sensitive settings',exact:true})).toBeVisible();
- await expect(page.getByLabel('New verification code',{exact:true})).toHaveCount(0);
- await page.getByLabel('Username',{exact:true}).fill('admin');
- await page.getByLabel('Password',{exact:true}).fill('Synthetic-test-only-password');
- await page.getByRole('button',{name:'Verify',exact:true}).last().click();
+ await expect(page.getByRole('heading',{name:'Re-authenticate for sensitive settings',exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'Save SMTP settings',exact:true}).click();
  await expect(page.getByRole('status')).toContainText('SMTP settings saved');
  await mkdir('artifacts/screenshots',{recursive:true});
@@ -107,5 +99,5 @@ try{
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
  await page.screenshot({path:'artifacts/screenshots/email-smtp-mobile.png',fullPage:true});
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
- console.log('Email UI passed: disabled default, SMTP TLS/port fields, encrypted-secret preservation, TLS failure/success feedback, verified-recipient gate, explicit test send, host-change re-entry, password-only reauth, light/dark/mobile. No external email was sent.');
+ console.log('Email UI passed: disabled default, SMTP TLS/port fields, encrypted-secret preservation, TLS failure/success feedback, verified-recipient gate, explicit test send, host-change re-entry, session-authorized settings, light/dark/mobile. No external email was sent.');
 }finally{await browser.close();await new Promise(done=>server.close(done))}

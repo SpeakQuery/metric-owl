@@ -16,10 +16,16 @@ pub struct Provider {
 
 pub const PROVIDERS: &[Provider] = &[
     Provider {
+        id: "xai",
+        name: "xAI (Grok)",
+        base_url: "https://api.x.ai/v1",
+        model: "grok-4.3",
+    },
+    Provider {
         id: "openai",
         name: "OpenAI",
         base_url: "https://api.openai.com/v1",
-        model: "gpt-4.1-mini",
+        model: "gpt-6-luna",
     },
     Provider {
         id: "anthropic",
@@ -31,19 +37,7 @@ pub const PROVIDERS: &[Provider] = &[
         id: "gemini",
         name: "Google Gemini",
         base_url: "https://generativelanguage.googleapis.com/v1beta",
-        model: "gemini-2.5-flash",
-    },
-    Provider {
-        id: "groq",
-        name: "Groq",
-        base_url: "https://api.groq.com/openai/v1",
-        model: "openai/gpt-oss-20b",
-    },
-    Provider {
-        id: "xai",
-        name: "xAI (Grok)",
-        base_url: "https://api.x.ai/v1",
-        model: "grok-4.3",
+        model: "gemini-3.5-flash-lite",
     },
     Provider {
         id: "deepseek",
@@ -55,7 +49,18 @@ pub const PROVIDERS: &[Provider] = &[
         id: "mistral",
         name: "Mistral AI",
         base_url: "https://api.mistral.ai/v1",
-        model: "mistral-small-latest",
+        model: "mistral-small-2603",
+    },
+];
+
+// Keep existing saved connections usable without offering specialist providers
+// as additional setup choices. They are never silently moved to another vendor.
+const LEGACY_PROVIDERS: &[Provider] = &[
+    Provider {
+        id: "groq",
+        name: "Groq",
+        base_url: "https://api.groq.com/openai/v1",
+        model: "openai/gpt-oss-20b",
     },
     Provider {
         id: "openrouter",
@@ -80,6 +85,7 @@ pub const PROVIDERS: &[Provider] = &[
 pub fn provider(id: &str) -> Result<&'static Provider> {
     PROVIDERS
         .iter()
+        .chain(LEGACY_PROVIDERS.iter())
         .find(|p| p.id == id)
         .ok_or_else(|| anyhow::anyhow!("Choose a supported AI provider"))
 }
@@ -91,6 +97,7 @@ pub fn selected(s: &Settings) -> Option<&'static Provider> {
     }
     PROVIDERS
         .iter()
+        .chain(LEGACY_PROVIDERS.iter())
         .find(|p| p.id != "gemini" && p.base_url == s.ai_base_url.trim_end_matches('/'))
 }
 
@@ -108,7 +115,7 @@ pub async fn status(app: &App) -> Result<Value> {
     let verified =
         saved && app.store.get("ai:verified").await?.as_deref() == Some(identity(&s).as_str());
     Ok(
-        json!({"providers": PROVIDERS, "selected_provider": selected(&s).map(|p| p.id), "key_saved": saved, "verified": verified}),
+        json!({"providers": PROVIDERS, "selected_provider": selected(&s).filter(|p| PROVIDERS.iter().any(|shown| shown.id == p.id)).map(|p| p.id), "key_saved": saved, "verified": verified}),
     )
 }
 
@@ -185,7 +192,9 @@ fn payload(s: &Settings, system: &str, user: &str, limit: u32) -> (String, Value
     match s.ai_provider.as_str() {
         "gemini" => {
             let mut body = json!({"systemInstruction":{"parts":[{"text":system}]},"contents":[{"parts":[{"text":user}]}],"generationConfig":{"maxOutputTokens":limit}});
-            if s.ai_model == "gemini-2.5-flash" {
+            if s.ai_model == "gemini-3.5-flash-lite" {
+                body["generationConfig"]["thinkingConfig"] = json!({"thinkingLevel":"minimal"});
+            } else if s.ai_model == "gemini-2.5-flash" {
                 body["generationConfig"]["thinkingConfig"] = json!({"thinkingBudget":0});
             }
             (
@@ -203,6 +212,11 @@ fn payload(s: &Settings, system: &str, user: &str, limit: u32) -> (String, Value
         _ => {
             let mut body = json!({"model":s.ai_model,"messages":[{"role":"system","content":system},{"role":"user","content":user}],"max_tokens":limit});
             match selected(s).map(|p| p.id) {
+                Some("openai") if s.ai_model.starts_with("gpt-6") => {
+                    body.as_object_mut().unwrap().remove("max_tokens");
+                    body["max_completion_tokens"] = json!(limit);
+                    body["reasoning_effort"] = json!("none");
+                }
                 Some("groq") if s.ai_model.starts_with("openai/gpt-oss-") => {
                     body["reasoning_effort"] = json!("low")
                 }
@@ -307,12 +321,36 @@ pub async fn generate(
     answer(&integrations::bounded_json(response).await?)
 }
 
+/// Chat reuses only an existing, known provider. No caller-selected endpoint,
+/// model or tool definitions enter this path.
+pub async fn chat_generate(
+    settings: &Settings,
+    key: &str,
+    system: &str,
+    user: &str,
+    limit: u32,
+) -> Result<String> {
+    ensure!(selected(settings).is_some(), "Unsupported AI connection");
+    ensure!(
+        limit <= 500 && user.len() <= 60_000,
+        "Chat request exceeds its limit"
+    );
+    tokio::time::timeout(
+        std::time::Duration::from_secs(50),
+        generate(settings, key, system, user, limit),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("Could not reach the AI provider. Please try again."))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn legacy_compatible_provider_is_detected_by_endpoint() {
         let mut s = Settings::default();
+        assert_eq!(selected(&s).unwrap().id, "xai");
+        s.ai_base_url = "https://api.groq.com/openai/v1".into();
         assert_eq!(selected(&s).unwrap().id, "groq");
         s.ai_base_url = "https://api.x.ai/v1/".into();
         assert_eq!(selected(&s).unwrap().id, "xai");
@@ -321,7 +359,8 @@ mod tests {
     }
     #[test]
     fn all_presets_have_distinct_ids_and_valid_https_requests() {
-        assert_eq!(PROVIDERS.len(), 10);
+        assert_eq!(PROVIDERS.len(), 6);
+        assert_eq!(PROVIDERS[0].id, "xai");
         let mut ids = std::collections::HashSet::new();
         for p in PROVIDERS {
             assert!(ids.insert(p.id));
@@ -335,12 +374,25 @@ mod tests {
             assert_eq!(url::Url::parse(&url).unwrap().scheme(), "https");
             assert!(!body.to_string().contains("api_key"));
             assert_eq!(selected(&s).unwrap().id, p.id);
+            if p.id == "openai" {
+                assert_eq!(body["model"], "gpt-6-luna");
+                assert_eq!(body["max_completion_tokens"], 1200);
+                assert_eq!(body["reasoning_effort"], "none");
+                assert!(body.get("max_tokens").is_none());
+            }
+            if p.id == "xai" {
+                assert_eq!(body["reasoning_effort"], "none");
+            }
             if p.id == "anthropic" {
                 assert_eq!(body["system"], "system");
                 assert!(url.ends_with("/messages"));
             }
             if p.id == "gemini" {
                 assert_eq!(body["generationConfig"]["maxOutputTokens"], 1200);
+                assert_eq!(
+                    body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+                    "minimal"
+                );
             }
         }
         assert!(provider("custom").is_err());

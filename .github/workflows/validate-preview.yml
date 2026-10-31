@@ -42,11 +42,14 @@ jobs:
       - name: Application integration
         run: |
           cargo build --workspace --locked
+          sudo useradd --system --no-create-home --home-dir /var/lib/server-guard --shell /usr/sbin/nologin server-guard
+          sudo /usr/bin/python3 scripts/test-recovery-root.py "$GITHUB_WORKSPACE/target/debug/server-guard"
           python3 scripts/integration-test.py
           python3 scripts/test-public-access.py
           python3 scripts/test-installer-enrollment.py
           python3 scripts/test-https-installer.py
           python3 scripts/test-bootstrap-flow.py
+          python3 scripts/test-maintenance.py
           python3 scripts/test-monitoring-features.py
       - name: Browser acceptance
         run: |
@@ -63,6 +66,6 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: metric-owl-linux-amd64-preview
-          path: artifacts/releases/v0.1.0-preview.9/linux-amd64/*
+          path: artifacts/releases/v0.1.0-preview.10/linux-amd64/*
           retention-days: 3
           if-no-files-found: error

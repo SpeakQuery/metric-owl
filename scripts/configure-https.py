@@ -546,7 +546,18 @@ def close_firewall(ports):
     for number in reversed(ports):
         try:
             if isinstance(number, int) and 1 <= number <= 65535 and number in ufw_owned_ports():
-                run(['ufw', '--force', 'delete', 'allow', str(number) + '/tcp'])
+                # Numbered removal affects only the exact tagged IPv4/IPv6 rule.
+                # Deleting a generic port rule can also remove an operator-edited
+                # counterpart in the other IP family. Never guess when inactive.
+                listing = run(['ufw', 'status', 'numbered']).stdout
+                expression = (r'^\[\s*(\d+)\]\s+' + str(number) +
+                              r'/tcp(?:\s+\(v6\))?\s+ALLOW(?:\s+IN)?\s+Anywhere(?:\s+\(v6\))?\s+#\s*' +
+                              re.escape(FIREWALL_TAG) + r'\s*$')
+                rules = [int(match.group(1)) for match in re.finditer(expression, listing, re.M)]
+                if not rules or len(rules) > 2:
+                    raise ValueError('Owned UFW entries cannot be identified safely; operator review required.')
+                for rule in sorted(rules, reverse=True):
+                    run(['ufw', '--force', 'delete', str(rule)])
         except Exception:
             failed.append(number)
     if failed:
@@ -621,6 +632,7 @@ def configure():
     origin = existing_origin()
     if origin:
         verify_panel(origin[8:])
+        record_installation_ownership()
         print('Preserved existing HTTPS configuration: ' + origin + '/admin')
         return
     if not choose_https_access():
@@ -720,6 +732,7 @@ def configure():
                                   'schema': 2, 'nginx_conf': str(conf), 'firewall_ports': firewall,
                                   'address': address, 'port': port}, indent=2) + '\n')
         created.append(MARKER)
+        record_installation_ownership()
         print('HTTPS is ready. Open https://' + authority + '/admin from any computer or phone.')
         print('Certificate renewal is automatic. Keep TCP 80 reachable for future renewal.')
     except Exception:
@@ -751,6 +764,17 @@ def configure():
         print('This attempt’s HTTPS and owned firewall entries were rolled back. Existing websites were not edited. '
               'The private certificate environment is retained so retrying can reuse its certificate.', file=sys.stderr)
         raise
+
+
+def record_installation_ownership():
+    # Older/manual installations may not have a ledger. Never invent ownership
+    # during removal; a verified current installer creates it before HTTPS setup.
+    manifest = Path('/etc/metric-owl/install-manifest.json')
+    if manifest.exists() and marker_data().get('managed') == 'installer':
+        helper = Path(__file__).with_name('manage-installation.py')
+        if helper.is_symlink() or not helper.is_file():
+            raise ValueError('The installation ownership helper is missing or linked.')
+        run(['python3', str(helper), 'record-https'])
 
 
 def uninstall_https():

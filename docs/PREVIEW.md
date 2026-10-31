@@ -95,3 +95,27 @@ widths. Two existing browser checks against a local running agent also passed fo
 authentication, live data and the MCP/AI screens. These are application/UI regressions;
 they do not replace the versioned Linux installation evidence above or establish
 actual SMTP inbox delivery.
+
+## Server conversations and safer operations: preview.10
+
+The source adds six named AI-provider presets and Server AI text chat using the
+installation's own provider key, with short Turkish/English answers and bounded
+read-only monitoring context. External MCP clients use their own chosen model;
+ten scoped read tools expose history, coverage-aware reports, process snapshots,
+configured-monitor state and collector health. MCP never invokes the server's
+saved Grok key. New historical process/capacity observations cannot recreate the
+period before collection began.
+
+Browser-session cookies replace repeated five-minute Verify prompts while initial
+login, CSRF, optional MFA and session revocation remain. Root-only local account
+recovery and fixed-path, ownership-checked uninstall/purge helpers are bundled.
+Transactional email uses HTML and plain-text alternatives; direct SMTP and an
+upgraded optional relay support the templates. No actual SMTP inbox delivery or
+Gmail/Outlook rendering is implied by synthetic browser previews.
+
+The release validation workflow checks the published installer on a disposable
+Ubuntu 24.04 VM with private SSH/loopback access, password recovery, data-preserving
+reinstall and explicit purge. Its run result is separate from the historical
+public-IP HTTPS certificate test above. Public source, a successful compile and
+installation on one OS do not establish fresh HTTPS installation on every listed
+platform. See the release notes and linked workflow for the actual run status.

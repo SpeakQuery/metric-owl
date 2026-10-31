@@ -122,7 +122,7 @@ pub async fn incident(app: &App, i: &Incident) -> Result<()> {
         } else {
             s.instant
         };
-    let payload = json!({"alias":s.alias,"title":i.title,"severity":i.severity,"summary":redact(&i.evidence,2048),"recommendation":redact(&i.recommendation,1024),"event_id":i.id,"at":i.updated_at,"resolved":i.resolved_at.is_some()});
+    let payload = json!({"kind":if i.resolved_at.is_some() && i.key != "host:restart" {"recovery"}else{"incident"},"alias":s.alias,"title":i.title,"severity":i.severity,"summary":redact(&i.evidence,2048),"recommendation":redact(&i.recommendation,1024),"event_id":i.id,"at":i.updated_at,"resolved":i.resolved_at.is_some()});
     let mut jobs = vec![];
     if should && s.recipient_verified && crate::smtp::enabled(&s) {
         jobs.push((
@@ -222,7 +222,7 @@ async fn cycle(app: &App) -> Result<()> {
             let events = app.store.incidents(0).await?;
             let active = events.iter().filter(|i| i.resolved_at.is_none()).count();
             let sample = app.latest.read().await.clone();
-            let payload = json!({"alias":s.alias,"title":"Daily server report","severity":"info","summary":format!("{} open incidents. CPU: {:?}%, memory: {:?}%.",active,sample.as_ref().and_then(|s|s.cpu.value),sample.as_ref().and_then(|s|s.memory.value)),"recommendation":"Detailed history and incidents are available in your local dashboard.","at":now});
+            let payload = json!({"kind":"report","alias":s.alias,"title":"Scheduled server summary","severity":"info","summary":format!("Recent recorded incidents still open: {active}. Latest collected CPU and memory readings are shown below; they are not period averages."),"readings":{"cpu_percent":sample.as_ref().and_then(|s|s.cpu.value),"memory_percent":sample.as_ref().and_then(|s|s.memory.value)},"sample_at":sample.as_ref().map(|s|s.at),"recommendation":"Review open incidents and collected history in your dashboard. Missing readings do not mean the server is healthy.","at":now});
             if mail_ready {
                 app.store
                     .enqueue(format!("report:{slot}"), "email".into(), payload.clone())
@@ -414,7 +414,7 @@ async fn ai_cycle(app: &App) -> Result<()> {
     match analyze(app, incident_id).await {
         Ok(result) => {
             let summary = redact(result["analysis"].as_str().unwrap_or(""), 2048);
-            let email = json!({"alias":s.alias,"title":"Expert analysis summary","summary":summary,"recommendation":"AI interpretations require verification. Details are available in your local dashboard."});
+            let email = json!({"kind":"analysis","alias":s.alias,"title":"Expert analysis summary","summary":summary,"recommendation":"AI interpretations require verification. Details are available in your local dashboard.","at":guard_core::now()});
             let notify = s.recipient_verified && crate::smtp::enabled(&s);
             app.store.write(move|c|{let tx=c.transaction()?;tx.execute("UPDATE outbox SET state='accepted',attempts=attempts+1,error=NULL WHERE id=?1",[&id])?;if notify{tx.execute("INSERT OR IGNORE INTO outbox(id,kind,payload,next_at,created) VALUES(?1,'email',?2,?3,?3)",params![format!("ai-mail:{id}"),email.to_string(),guard_core::now()])?;}tx.commit()?;Ok(())}).await?;
         }

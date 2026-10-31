@@ -7,9 +7,9 @@ type Options = { transport: 'local' | 'ssh'; host: string; user: string; port: n
 type Metadata = { command: string; args: string[]; tools: string[]; suggested_transport: 'local' | 'ssh'; ssh: { host: string; user: string; port: number } };
 type Configuration = { server_name: string; transport: string; command: string; args: string[]; codex: string; custom: string; key_file: string; ssh_prerequisite: boolean; note: string };
 type Client = { id: string; name: string; scopes: string[]; revoked: boolean };
-const tools: Record<string, string> = { server_info: 'Server details', current_metrics: 'Current metrics', history: 'Performance history', list_incidents: 'Incident list', incident_detail: 'Incident evidence', log_summary: 'Sanitized log summaries' };
+const tools: Record<string, string> = { server_info: 'Server details', current_metrics: 'Current metrics', history: 'Performance history', metric_report: 'Period summaries & comparisons', process_history: 'Historical process snapshots', monitored_sources: 'Website, service & backup status', monitoring_health: 'Collection health & data coverage', list_incidents: 'Incident list', incident_detail: 'Incident evidence', log_summary: 'Sanitized log summaries' };
 
-export default function McpGuide({ onReauthenticate }: { onReauthenticate?: () => void }) {
+export default function McpGuide() {
   const [metadata, setMetadata] = useState<Metadata | null>(null);
   const [options, setOptions] = useState<Options>({ transport: 'local', host: '', user: 'root', port: 22 });
   const [format, setFormat] = useState<'codex' | 'custom'>('codex');
@@ -22,6 +22,8 @@ export default function McpGuide({ onReauthenticate }: { onReauthenticate?: () =
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [permissionClient, setPermissionClient] = useState<Client | null>(null);
+  const [permissionScopes, setPermissionScopes] = useState<string[]>([]);
 
   async function load() {
     setError('');
@@ -34,11 +36,7 @@ export default function McpGuide({ onReauthenticate }: { onReauthenticate?: () =
   }
   useEffect(() => { void load(); }, []);
   function fail(e: unknown) {
-    const message = (e as Error).message;
-    if (/re-authenticat|verify your identity again/i.test(message)) {
-      setError('Please verify your identity in the form below, then try this action again.');
-      onReauthenticate?.();
-    } else setError(message);
+    setError((e as Error).message);
   }
   function change(next: Partial<Options>) { setOptions(previous => ({ ...previous, ...next })); setConfiguration(null); setCopied(false); setNotice(''); }
   function valid(existingId?: string) {
@@ -77,6 +75,16 @@ export default function McpGuide({ onReauthenticate }: { onReauthenticate?: () =
     finally { setBusy(false); }
   }
   const text = configuration ? configuration[format] : '';
+  async function savePermissions() {
+    if (!permissionClient || !permissionScopes.length) return;
+    setBusy(true); setError('');
+    try {
+      await api(`mcp/clients/${permissionClient.id}`, 'PUT', { scopes: permissionScopes });
+      setClients(await api<Client[]>('mcp/clients')); setPermissionClient(null);
+      setNotice('Read permissions saved. Reconnect your AI client to refresh its available tools.');
+    } catch (e) { fail(e); }
+    finally { setBusy(false); }
+  }
   async function copy() {
     try { await navigator.clipboard.writeText(text); setCopied(true); setError(''); }
     catch { setError('Clipboard access is unavailable. Select the configuration below and copy it manually.'); }
@@ -102,7 +110,8 @@ export default function McpGuide({ onReauthenticate }: { onReauthenticate?: () =
         {configuration && <section className="mcp-ready" aria-label="Ready-to-use MCP configuration"><div className="mcp-ready-heading"><div><span className="eyebrow">CONFIGURATION READY</span><h3>Add this to {format === 'codex' ? 'Codex' : 'your MCP client'}</h3></div><button className="primary" onClick={copy}>{copied ? <Check size={16} /> : <Copy size={16} />}{copied ? 'Configuration copied' : 'Copy configuration'}</button></div><p>{format === 'codex' ? <>Paste this block into <code>~/.codex/config.toml</code>, or use these command and arguments in Codex’s MCP settings.</> : <>Paste this into your client’s MCP configuration. If it uses a form, choose <strong>stdio</strong> and enter the command and arguments shown below.</>}</p><pre className="code-block" tabIndex={0}>{text}</pre><div className="mcp-ready-next"><Terminal size={18} /><div><strong>Reconnect your AI client, then ask:</strong><p>“Show my server information.”</p><small>Configuration has been generated. The connection is only confirmed when your client successfully reads a result.</small></div></div><button className="text-button" onClick={() => { setSelected(null); setConfiguration(null); setCopied(false); setNotice(''); }}>Create another connection <ArrowRight size={14} /></button></section>}
       </>}
     </section>
-    <section className="panel mcp-connections"><div className="panel-head"><div><h2>Your connections</h2><p>Each client has its own permissions and revocable key.</p></div><span className="tag">{clients.filter(client => !client.revoked).length} ACTIVE</span></div><div className="table-scroll"><table><thead><tr><th>Connection</th><th>Access</th><th>Status</th><th>Actions</th></tr></thead><tbody>{clients.map(client => <tr key={client.id}><td><strong>{client.name}</strong></td><td>{client.scopes.length} read tools</td><td><span className={'badge ' + (client.revoked ? 'neutral' : 'good')}>{client.revoked ? 'Revoked' : 'Active'}</span></td><td><div className="mcp-row-actions"><button className="secondary compact" disabled={busy || client.revoked} onClick={() => prepare(client.id)}>Show configuration</button><button className="icon-button danger" disabled={busy || client.revoked} aria-label={`Revoke ${client.name}`} onClick={() => revoke(client)}><Trash2 size={16} /></button></div></td></tr>)}</tbody></table>{!clients.length && <p className="mcp-no-connections">No connections yet. Create your first one above.</p>}</div></section>
+    <section className="panel mcp-connections"><div className="panel-head"><div><h2>Your connections</h2><p>Each client has its own permissions and revocable key.</p></div><span className="tag">{clients.filter(client => !client.revoked).length} ACTIVE</span></div><div className="table-scroll"><table><thead><tr><th>Connection</th><th>Access</th><th>Status</th><th>Actions</th></tr></thead><tbody>{clients.map(client => <tr key={client.id}><td><strong>{client.name}</strong></td><td>{client.scopes.length} read tools</td><td><span className={'badge ' + (client.revoked ? 'neutral' : 'good')}>{client.revoked ? 'Revoked' : 'Active'}</span></td><td><div className="mcp-row-actions"><button className="secondary compact" disabled={busy || client.revoked} onClick={() => prepare(client.id)}>Show configuration</button><button className="secondary compact" disabled={busy || client.revoked} aria-label={`Edit permissions for ${client.name}`} onClick={() => { setPermissionClient(client); setPermissionScopes([...client.scopes]); }}>Permissions</button><button className="icon-button danger" disabled={busy || client.revoked} aria-label={`Revoke ${client.name}`} onClick={() => revoke(client)}><Trash2 size={16} /></button></div></td></tr>)}</tbody></table>{!clients.length && <p className="mcp-no-connections">No connections yet. Create your first one above.</p>}</div></section>
+    {permissionClient && <section className="panel mcp-wizard" aria-label="Connection permissions"><h3>Read permissions · {permissionClient.name}</h3><p className="muted">Choose what this existing connection may read. Its private key and server connection stay the same.</p><div className="mcp-scope-grid">{(metadata?.tools || Object.keys(tools)).map(scope => <label className="check-label" key={scope}><input type="checkbox" checked={permissionScopes.includes(scope)} onChange={event => setPermissionScopes(previous => event.target.checked ? [...previous, scope] : previous.filter(value => value !== scope))}/>{tools[scope] || scope}</label>)}</div><div className="mcp-prepare"><button className="primary" disabled={busy || !permissionScopes.length} onClick={() => void savePermissions()}>Save permissions</button><button className="secondary" disabled={busy} onClick={() => setPermissionClient(null)}>Cancel</button></div></section>}
     <section className="panel mcp-questions"><span className="eyebrow">MORE THAN A HEALTH CHECK</span><h3>Try a real question.</h3><div><p>“Show a table of CPU usage over the last 24 hours.”</p><p>“Compare CPU and memory rises and falls.”</p><p>“Explain the most recent critical event.”</p></div><small>Only collected history is available. MCP uses local or SSH stdio; the dashboard URL is not an HTTP MCP endpoint.</small></section>
   </div>;
 }

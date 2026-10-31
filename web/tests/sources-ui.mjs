@@ -52,7 +52,7 @@ try {
     if (path === 'targets') {
       if (route.request().method() === 'PUT') {
         writes++;
-        if (rejectSave) return respond({ error: 'Please re-authenticate before changing sensitive settings.' }, 403);
+        if (rejectSave) return respond({ error: 'Monitor settings could not be saved. Try again.' }, 503);
         targets = route.request().postDataJSON().map(target => target.kind === 'job' && !target.address ? { ...target, address: `/var/lib/server-guard/job-reports/${target.id}.json`, options: { ...target.options, job_added_at: 100 } } : target);
         return respond({ ok: true, targets });
       }
@@ -62,7 +62,6 @@ try {
         { id: tlsId, kind: 'tls', name: 'Application certificate', at: Date.now() / 1000, status: 'unavailable', detail: 'Certificate verification failed; expiry could not be verified.', measurements: { tls_failure: 1 } },
       ] });
     }
-    if (path === 'auth/reauth') { rejectSave = false; return respond({ ok: true }); }
     const data = {
       'auth/status': { configured: true, session: { csrf: 'fixture-csrf' } },
       host: { id: 'fixture', name: 'production-01', os: 'Ubuntu 24.04 LTS', cpu_model: 'Virtual CPU', cores: 2, memory_total: 8 * 1024 ** 3, version: '0.1.0' },
@@ -106,11 +105,10 @@ try {
   await page.getByLabel('Maximum response time').fill('800');
   rejectSave = true;
   await page.getByRole('button', { name: 'Add to monitoring' }).click();
-  await expect(page.getByRole('heading', { name: 'Verify your identity' })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('could not be saved');
+  await expect(page.getByRole('heading', { name: 'Verify your identity' })).toHaveCount(0);
   await expect(page.getByLabel('Display name')).toHaveValue('app.example.com health');
-  await page.getByLabel('Current password').fill('fixture-only-never-a-real-password');
-  await page.getByLabel('New verification code').fill('123456');
-  await page.getByRole('button', { name: 'Verify identity', exact: true }).click();
+  rejectSave = false;
   await page.getByRole('button', { name: 'Add to monitoring' }).click();
   await expect(page.getByRole('heading', { name: 'app.example.com health', exact: true })).toBeVisible();
   assert.equal(targets.at(-1).options.json_pointer, '');
