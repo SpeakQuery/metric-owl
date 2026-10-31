@@ -71,6 +71,8 @@ try {
   assert.equal(await page.locator('.quick-steps > li').count(),3);
   assert.match(await page.locator('.quick-steps').textContent(), /at least 8 characters; no required character types/);
   assert.match(await page.locator('.quick-steps').textContent(), /installer asks again/);
+  assert.match(await page.locator('.quick-steps').textContent(), /HTTPS — open from any device \(recommended\)/);
+  assert.match(await page.locator('.quick-steps').textContent(), /Private — connect through SSH/);
   assert.equal(await page.locator('input,select').count(),0);
   await page.context().grantPermissions(['clipboard-read','clipboard-write']);
   await page.getByRole('button',{name:'Copy command',exact:true}).click();

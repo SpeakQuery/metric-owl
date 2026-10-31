@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Bounded, isolated installer regressions. Never changes the real web server."""
 import importlib.util
+import io
+from contextlib import redirect_stdout
 import json
 import os
 from pathlib import Path
@@ -388,11 +390,179 @@ print('TERMINAL_FLOW_OK', flush=True)
         self.assertNotIn(['ufw', '--force', 'delete', 'allow', '8443/tcp'], calls)
 
     def test_existing_operator_configuration_is_preserved(self):
-        with patch.object(module.os, 'geteuid', return_value=0), patch.object(module, 'existing_origin', return_value='https://monitor.example.com'), patch.object(module, 'verify_panel') as verifier, patch.object(module, 'run') as runner, patch.object(module, 'prompt') as prompt:
+        with patch.object(module.os, 'geteuid', return_value=0), patch.object(module, 'existing_origin', return_value='https://monitor.example.com'), patch.object(module, 'verify_panel') as verifier, patch.object(module, 'run') as runner, patch.object(module, 'prompt') as prompt, patch.object(module, 'choose_https_access') as choose:
             module.configure()
         verifier.assert_called_once_with('monitor.example.com')
         runner.assert_not_called()
         prompt.assert_not_called()
+        choose.assert_not_called()
+
+    def test_access_choice_defaults_to_https_and_retries_invalid_input(self):
+        with patch.dict(module.os.environ, {}, clear=True), redirect_stdout(io.StringIO()) as output, \
+                patch.object(module, 'prompt', side_effect=['other', '1']) as prompt:
+            self.assertTrue(module.choose_https_access())
+        self.assertEqual(prompt.call_count, 2)
+        prompt.assert_called_with('Enter 1 or 2, then press Enter', '1')
+        self.assertIn('1) HTTPS — open from any device (recommended)', output.getvalue())
+        self.assertIn('2) Private — connect through SSH', output.getvalue())
+        self.assertIn('Please enter 1 or 2.', output.getvalue())
+        for value, expected in [('0', False), ('1', True)]:
+            with self.subTest(value=value), patch.dict(module.os.environ, {'GUARD_CONFIGURE_HTTPS': value}, clear=True), \
+                    patch.object(module, 'prompt') as prompt:
+                self.assertEqual(module.choose_https_access(), expected)
+                prompt.assert_not_called()
+
+    def test_real_terminal_access_selection_accepts_enter_and_private_choice(self):
+        script = '''
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('installer', sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+m.os.environ.pop('GUARD_CONFIGURE_HTTPS', None)
+assert m.choose_https_access() is True
+assert m.choose_https_access() is False
+print('TERMINAL_FLOW_OK', flush=True)
+'''
+        question = 'Enter 1 or 2, then press Enter [1]: '
+        self.terminal_flow(script, [(question, '\n'), (question, '2\n')])
+
+    def test_private_choice_skips_ip_terms_webserver_and_certificate_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = {name: Path(directory) / name for name in ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER']}
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), \
+                    patch.dict(module.os.environ, {}, clear=True), patch.object(module, 'prompt', return_value='2') as prompt, \
+                    patch.object(module, 'choose_public_ip') as ip, patch.object(module, 'run') as runner, \
+                    patch.object(module, 'ensure_prerequisites') as prerequisites, redirect_stdout(io.StringIO()) as output:
+                module.configure()
+            prompt.assert_called_once_with('Enter 1 or 2, then press Enter', '1')
+            ip.assert_not_called()
+            runner.assert_not_called()
+            prerequisites.assert_not_called()
+            self.assertFalse(any(path.exists() for path in paths.values()))
+            self.assertIn('Certificate packages and HTTPS configuration were skipped.', output.getvalue())
+
+    def test_private_summary_prints_copyable_tunnel_and_local_url(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            # Isolate the marker path even when tests run on an installed Linux host.
+            script = temp / 'show-setup.sh'
+            script.write_text((ROOT / 'scripts/show-setup.sh').read_text().replace('/etc/metric-owl/panel-access.json', str(temp / 'no-marker')))
+            (temp / 'connection-hints.sh').write_text((ROOT / 'scripts/connection-hints.sh').read_text())
+            curl = temp / 'curl'
+            curl.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"configured":true,"mfa_required":false,"process_id":12345}\'\n')
+            curl.chmod(0o755)
+            environment = {**os.environ, 'PATH': str(temp) + os.pathsep + os.environ['PATH'], 'GUARD_PUBLIC_ORIGIN': '',
+                           'GUARD_SSH_HOST': '8.8.8.8', 'GUARD_SSH_USER': 'root', 'GUARD_SSH_PORT': '2222', 'GUARD_LOCAL_PORT': '14877'}
+            result = subprocess.run(['bash', str(script), str(temp), 'ssh', '4877', '12345'], capture_output=True, text=True, check=True, env=environment)
+            self.assertIn('ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:14877:127.0.0.1:4877 -p 2222 root@8.8.8.8', result.stdout)
+            self.assertIn('Open in your browser: http://127.0.0.1:14877/admin', result.stdout)
+            self.assertIn('Your administrator account is ready.', result.stdout)
+            self.assertNotIn('http://8.8.8.8', result.stdout)
+            self.assertNotIn('Setup key:', result.stdout)
+            self.assertNotIn('Scan the QR code', result.stdout)
+
+    def test_dependency_logs_are_private_and_reject_directory_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory) / 'private-logs'
+            folder.mkdir(mode=0o755)
+            with patch.object(module, 'DEPENDENCY_LOG_DIR', folder):
+                path, log = module.dependency_log()
+                with log:
+                    log.write('synthetic dependency output\n')
+                self.assertEqual(folder.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                path2, log2 = module.dependency_log()
+                log2.close()
+                self.assertNotEqual(path, path2)
+            link = Path(directory) / 'link'
+            link.symlink_to(folder, target_is_directory=True)
+            with patch.object(module, 'DEPENDENCY_LOG_DIR', link), self.assertRaisesRegex(ValueError, 'symbolic link'):
+                module.dependency_log()
+
+    def test_dependency_log_never_overwrites_existing_file_or_symlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory) / 'logs'
+            folder.mkdir()
+            target = Path(directory) / 'untouched'
+            target.write_text('existing contents')
+            name = folder / 'dependencies-fixed-fixed.log'
+            name.symlink_to(target)
+            with patch.object(module, 'DEPENDENCY_LOG_DIR', folder), patch.object(module.time, 'strftime', return_value='fixed'), \
+                    patch.object(module.secrets, 'token_hex', return_value='fixed'), self.assertRaises(FileExistsError):
+                module.dependency_log()
+            self.assertEqual(target.read_text(), 'existing contents')
+
+    def test_dependency_failure_keeps_verbose_output_private_and_cannot_read_answers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(module, 'DEPENDENCY_LOG_DIR', Path(directory) / 'logs'):
+                path, log = module.dependency_log()
+            command = [sys.executable, '-c', 'import sys; print("verbose-package-detail"); print("stderr-package-detail", file=sys.stderr); assert sys.stdin.read() == ""; sys.exit(7)']
+            with log, redirect_stdout(io.StringIO()) as output, self.assertRaises(RuntimeError) as error:
+                module.dependency_step('Installing test support', command, path, log)
+            self.assertIn('verbose-package-detail', path.read_text())
+            self.assertIn('stderr-package-detail', path.read_text())
+            self.assertNotIn('package-detail', output.getvalue())
+            self.assertNotIn(': done.', output.getvalue())
+            self.assertEqual(str(error.exception), 'Installing test support failed. HTTPS setup is incomplete. Details: ' + str(path))
+
+    def test_missing_dependency_command_reports_operation_and_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(module, 'DEPENDENCY_LOG_DIR', Path(directory) / 'logs'):
+                path, log = module.dependency_log()
+            with log, redirect_stdout(io.StringIO()), self.assertRaisesRegex(RuntimeError, 'Preparing test support failed. HTTPS setup is incomplete. Details:'):
+                module.dependency_step('Preparing test support', [str(Path(directory) / 'missing-command')], path, log)
+            self.assertIn('could not be started', path.read_text())
+
+    def test_valid_existing_certbot_skips_all_dependency_work(self):
+        with tempfile.TemporaryDirectory() as directory:
+            certbot = Path(directory) / 'certbot/bin/certbot'
+            certbot.parent.mkdir(parents=True)
+            certbot.touch()
+            result = subprocess.CompletedProcess([], 0, 'certbot ' + module.CERTBOT_VERSION + '\n', '')
+            with patch.object(module, 'CERTBOT', certbot), patch.object(module.shutil, 'which', return_value='/usr/sbin/nginx'), \
+                    patch.object(module, 'prerequisite_check', return_value=result), patch.object(module, 'dependency_log') as logs, \
+                    patch.object(module, 'dependency_step') as install, redirect_stdout(io.StringIO()) as output:
+                module.ensure_prerequisites()
+            logs.assert_not_called()
+            install.assert_not_called()
+            self.assertIn('No downloads are needed.', output.getvalue())
+
+    def test_working_python_venv_skips_apt_and_private_venv_is_reused(self):
+        for existing_venv in (False, True):
+            with self.subTest(existing_venv=existing_venv), tempfile.TemporaryDirectory() as directory:
+                certbot = Path(directory) / 'certbot/bin/certbot'
+                if existing_venv:
+                    certbot.parent.mkdir(parents=True)
+                    (certbot.parent / 'python').touch()
+                result = subprocess.CompletedProcess([], 0, 'available', '')
+                with patch.object(module, 'CERTBOT', certbot), patch.object(module, 'DEPENDENCY_LOG_DIR', Path(directory) / 'logs'), \
+                        patch.object(module.shutil, 'which', return_value='/usr/sbin/nginx'), patch.object(module, 'prerequisite_check', return_value=result), \
+                        patch.object(module, 'dependency_step') as install, redirect_stdout(io.StringIO()), \
+                        patch.dict(module.os.environ, {'PIP_INDEX_URL': 'https://private.invalid', 'PIP_EXTRA_INDEX_URL': 'https://extra.invalid'}, clear=True):
+                    module.ensure_prerequisites()
+                commands = [call.args[1] for call in install.call_args_list]
+                self.assertFalse(any(command[0] == 'apt-get' for command in commands))
+                self.assertEqual(len(commands), 1 if existing_venv else 2)
+                if not existing_venv:
+                    self.assertEqual(commands[0], ['python3', '-m', 'venv', str(certbot.parent.parent)])
+                self.assertIn('certbot==' + module.CERTBOT_VERSION, commands[-1])
+                environment = install.call_args_list[-1].kwargs['env']
+                self.assertNotIn('PIP_INDEX_URL', environment)
+                self.assertNotIn('PIP_EXTRA_INDEX_URL', environment)
+                self.assertEqual(environment['PIP_CONFIG_FILE'], os.devnull)
+
+    def test_missing_system_prerequisites_are_installed_noninteractively(self):
+        with tempfile.TemporaryDirectory() as directory:
+            certbot = Path(directory) / 'certbot/bin/certbot'
+            result = subprocess.CompletedProcess([], 1, '', '')
+            with patch.object(module, 'CERTBOT', certbot), patch.object(module, 'DEPENDENCY_LOG_DIR', Path(directory) / 'logs'), \
+                    patch.object(module.shutil, 'which', return_value=None), patch.object(module, 'prerequisite_check', return_value=result), \
+                    patch.object(module, 'dependency_step') as install, redirect_stdout(io.StringIO()):
+                module.ensure_prerequisites()
+            commands = [call.args[1] for call in install.call_args_list]
+            self.assertEqual(commands[:2], [['apt-get', 'update'], ['apt-get', 'install', '-y', '--no-install-recommends', 'nginx', 'python3-venv']])
+            self.assertEqual(install.call_args_list[1].kwargs['env']['DEBIAN_FRONTEND'], 'noninteractive')
+            self.assertEqual(install.call_args_list[1].kwargs['env']['NEEDRESTART_MODE'], 'l')
 
     def test_marker_rejects_paths_symlinks_and_unknown_managers(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -420,7 +590,7 @@ print('TERMINAL_FLOW_OK', flush=True)
                 if args[0] == str(module.CERTBOT):
                     raise RuntimeError('synthetic failure')
                 return subprocess.CompletedProcess(args, 0, '', '')
-            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_PUBLIC_IP': '8.8.8.8', 'GUARD_HTTPS_AGREE_TOS': '1'}, clear=True), patch.object(module.shutil, 'which', return_value=None), patch.object(module, 'ensure_prerequisites'), patch.object(module, 'run', side_effect=run), patch.object(module, 'open_firewall', return_value=[8443]), patch.object(module, 'close_firewall') as closer:
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_CONFIGURE_HTTPS': '1', 'GUARD_PUBLIC_IP': '8.8.8.8', 'GUARD_HTTPS_AGREE_TOS': '1'}, clear=True), patch.object(module.shutil, 'which', return_value=None), patch.object(module, 'ensure_prerequisites'), patch.object(module, 'run', side_effect=run), patch.object(module, 'open_firewall', return_value=[8443]), patch.object(module, 'close_firewall') as closer:
                 with self.assertRaisesRegex(RuntimeError, 'provider firewall'):
                     module.configure()
             self.assertEqual(existing_site.read_text(), 'server_name existing.example.com;')
@@ -438,7 +608,7 @@ print('TERMINAL_FLOW_OK', flush=True)
             paths = {name: Path(directory) / name for name in ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER']}
             def run(args, **kwargs):
                 return subprocess.CompletedProcess(args, 0, 'LISTEN users:(("apache2",pid=123))' if args[-1] == ':80' else '', '')
-            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_PUBLIC_IP': '8.8.8.8'}, clear=True), patch.object(module, 'run', side_effect=run) as runner, patch.object(module, 'ensure_prerequisites') as prerequisites:
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_CONFIGURE_HTTPS': '1', 'GUARD_PUBLIC_IP': '8.8.8.8'}, clear=True), patch.object(module, 'run', side_effect=run) as runner, patch.object(module, 'ensure_prerequisites') as prerequisites:
                 with self.assertRaisesRegex(ValueError, 'Another web server'):
                     module.configure()
             prerequisites.assert_not_called()
@@ -447,13 +617,20 @@ print('TERMINAL_FLOW_OK', flush=True)
     def test_automatic_ip_does_not_automatically_accept_certificate_terms(self):
         with tempfile.TemporaryDirectory() as directory:
             paths = {name: Path(directory) / name for name in ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER']}
+            output = io.StringIO()
+            def decline_terms(*args):
+                # Disclosure must be visible before asking for certificate consent.
+                self.assertIn('HTTPS protects browser access to your own server: https://8.8.8.8:8443/admin', output.getvalue())
+                self.assertIn('Nginx will be installed.', output.getvalue())
+                self.assertIn('Python support dependencies may also be updated.', output.getvalue())
+                return 'no'
             with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), \
-                    patch.dict(module.os.environ, {}, clear=True), \
+                    patch.dict(module.os.environ, {'GUARD_CONFIGURE_HTTPS': '1'}, clear=True), \
                     patch.object(module, 'discover_public_ip', return_value='8.8.8.8'), \
                     patch.object(module.shutil, 'which', return_value=None), \
                     patch.object(module, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')), \
-                    patch.object(module, 'prompt', return_value='no') as prompt, \
-                    patch.object(module, 'ensure_prerequisites') as prerequisites:
+                    patch.object(module, 'prompt', side_effect=decline_terms) as prompt, \
+                    patch.object(module, 'ensure_prerequisites') as prerequisites, redirect_stdout(output):
                 with self.assertRaisesRegex(ValueError, 'terms were not accepted'):
                     module.configure()
             prompt.assert_called_once_with('Accept the certificate authority terms? (yes/no)', 'no')
@@ -483,7 +660,7 @@ print('TERMINAL_FLOW_OK', flush=True)
             def run(args, **kwargs):
                 calls.append(args)
                 return subprocess.CompletedProcess(args, 0, '', '')
-            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_PUBLIC_IP': '8.8.8.8', 'GUARD_HTTPS_AGREE_TOS': '1'}, clear=True), patch.object(module.shutil, 'which', return_value=None), patch.object(module, 'ensure_prerequisites'), patch.object(module, 'run', side_effect=run), patch.object(module, 'open_firewall', return_value=[8443]), patch.object(module, 'close_firewall') as closer, patch.object(module, 'verify_panel') as verify:
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_CONFIGURE_HTTPS': '1', 'GUARD_PUBLIC_IP': '8.8.8.8', 'GUARD_HTTPS_AGREE_TOS': '1'}, clear=True), patch.object(module.shutil, 'which', return_value=None), patch.object(module, 'ensure_prerequisites'), patch.object(module, 'run', side_effect=run), patch.object(module, 'open_firewall', return_value=[8443]), patch.object(module, 'close_firewall') as closer, patch.object(module, 'verify_panel') as verify:
                 module.configure()
                 data = json.loads(paths['MARKER'].read_text())
                 self.assertEqual(data['public_origin'], 'https://8.8.8.8:8443')
@@ -516,7 +693,7 @@ print('TERMINAL_FLOW_OK', flush=True)
                 if args == ['systemctl', 'restart', 'server-guard']:
                     raise RuntimeError('synthetic private command failure')
                 return subprocess.CompletedProcess(args, 0, '', '')
-            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_PUBLIC_IP': '8.8.8.8', 'GUARD_HTTPS_AGREE_TOS': '1'}, clear=True), patch.object(module.shutil, 'which', return_value='/usr/sbin/nginx'), patch.object(module, 'select_conf', return_value=paths['SITES_CONF']), patch.object(module, 'ensure_prerequisites'), patch.object(module, 'run', side_effect=run), patch.object(module, 'open_firewall', return_value=[80, 8443]), patch.object(module, 'close_firewall') as closer:
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), patch.dict(module.os.environ, {'GUARD_CONFIGURE_HTTPS': '1', 'GUARD_PUBLIC_IP': '8.8.8.8', 'GUARD_HTTPS_AGREE_TOS': '1'}, clear=True), patch.object(module.shutil, 'which', return_value='/usr/sbin/nginx'), patch.object(module, 'select_conf', return_value=paths['SITES_CONF']), patch.object(module, 'ensure_prerequisites'), patch.object(module, 'run', side_effect=run), patch.object(module, 'open_firewall', return_value=[80, 8443]), patch.object(module, 'close_firewall') as closer:
                 with self.assertRaisesRegex(RuntimeError, 'cleanup was incomplete'):
                     module.configure()
                 recovery = module.recovery_path()

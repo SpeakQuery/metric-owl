@@ -32,6 +32,7 @@ CERTBOT_VERSION = '5.9.0'
 ACME = Path('/etc/metric-owl/acme')
 ACME_WORK = Path('/var/lib/metric-owl-acme')
 ACME_LOGS = Path('/var/log/metric-owl-acme')
+DEPENDENCY_LOG_DIR = Path('/var/log/metric-owl-installer')
 RENEW_SERVICE = Path('/etc/systemd/system/metricowl-certificate-renew.service')
 RENEW_TIMER = Path('/etc/systemd/system/metricowl-certificate-renew.timer')
 FIREWALL_TAG = 'Metric Owl installer'
@@ -404,23 +405,97 @@ WantedBy=timers.target
 '''
 
 
+def dependency_log():
+    """Create a private, exclusive log; never follow a log-directory/file symlink."""
+    if DEPENDENCY_LOG_DIR.is_symlink():
+        raise ValueError('The dependency log directory must not be a symbolic link.')
+    DEPENDENCY_LOG_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    directory = os.open(DEPENDENCY_LOG_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        if os.fstat(directory).st_uid != os.geteuid():
+            raise ValueError('The dependency log directory must belong to the installer user.')
+        os.fchmod(directory, 0o700)
+        name = 'dependencies-' + time.strftime('%Y%m%d-%H%M%S', time.gmtime()) + '-' + secrets.token_hex(6) + '.log'
+        descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+        try:
+            os.fchmod(descriptor, 0o600)
+            return DEPENDENCY_LOG_DIR / name, os.fdopen(descriptor, 'w')
+        except Exception:
+            os.close(descriptor)
+            raise
+    finally:
+        os.close(directory)
+
+
+def dependency_step(label, args, log_path, log, *, env=None):
+    # Only fixed dependency commands use this helper. Account entry and CA consent
+    # never pass through it; subprocesses cannot consume terminal/piped answers.
+    print(label + '…', flush=True)
+    log.write('\n' + label + '\n')
+    log.flush()
+    failure = label + ' failed. HTTPS setup is incomplete. Details: ' + str(log_path)
+    try:
+        result = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=log,
+                                stderr=subprocess.STDOUT, env=env)
+    except OSError:
+        log.write('The dependency command could not be started.\n')
+        log.flush()
+        raise RuntimeError(failure) from None
+    log.flush()
+    if result.returncode != 0:
+        raise RuntimeError(failure)
+    print(label + ': done.', flush=True)
+
+
+def prerequisite_check(args):
+    try:
+        return subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True)
+    except OSError:
+        return subprocess.CompletedProcess(args, 127, '', '')
+
+
 def ensure_prerequisites():
-    # A private environment leaves any system Certbot and all other certificates untouched.
-    subprocess.run(['apt-get', 'update'], check=True)
-    subprocess.run(['apt-get', 'install', '-y', '--no-install-recommends', 'python3-venv'],
-                   check=True, env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive', 'NEEDRESTART_MODE': 'l'})
+    # Certbot is private, but OS support packages are real system changes. APT
+    # may upgrade dependencies; explain that before consent and keep its detail log.
     if CERTBOT.is_symlink():
         raise ValueError('The isolated certificate client must not be a symbolic link.')
-    if not CERTBOT.exists() or run([str(CERTBOT), '--version']).stdout.strip() != 'certbot ' + CERTBOT_VERSION:
-        environment = CERTBOT.parent.parent
-        if environment.is_symlink():
-            raise ValueError('Unsafe certificate client directory.')
-        subprocess.run(['python3', '-m', 'venv', str(environment)], check=True)
-        subprocess.run([str(environment / 'bin/python'), '-m', 'pip', 'install', '--disable-pip-version-check',
-                        '--index-url', 'https://pypi.org/simple', 'certbot==' + CERTBOT_VERSION], check=True)
-    if not shutil.which('nginx'):
-        subprocess.run(['apt-get', 'install', '-y', '--no-install-recommends', 'nginx'],
-                       check=True, env={**os.environ, 'DEBIAN_FRONTEND': 'noninteractive', 'NEEDRESTART_MODE': 'l'})
+    environment = CERTBOT.parent.parent
+    if environment.is_symlink():
+        raise ValueError('Unsafe certificate client directory.')
+    certificate_ready = False
+    if CERTBOT.is_file():
+        checked = prerequisite_check([str(CERTBOT), '--version'])
+        certificate_ready = checked.returncode == 0 and checked.stdout.strip() == 'certbot ' + CERTBOT_VERSION
+    nginx_needed = not shutil.which('nginx')
+    if certificate_ready and not nginx_needed:
+        print('HTTPS dependencies are already available. No downloads are needed.', flush=True)
+        return
+    environment_python = environment / 'bin/python'
+    environment_ready = (environment_python.is_file() and
+                         prerequisite_check([str(environment_python), '-m', 'pip', '--version']).returncode == 0)
+    packages = ['nginx'] if nginx_needed else []
+    if not certificate_ready and not environment_ready:
+        if prerequisite_check(['python3', '-c', 'import venv, ensurepip; ensurepip.version()']).returncode != 0:
+            packages.append('python3-venv')
+    log_path, log = dependency_log()
+    with log:
+        print('Detailed dependency output is saved privately: ' + str(log_path), flush=True)
+        apt_env = {**os.environ, 'DEBIAN_FRONTEND': 'noninteractive', 'NEEDRESTART_MODE': 'l'}
+        if packages:
+            dependency_step('Checking system package availability', ['apt-get', 'update'], log_path, log, env=apt_env)
+            dependency_step('Installing required HTTPS support',
+                            ['apt-get', 'install', '-y', '--no-install-recommends', *packages], log_path, log, env=apt_env)
+        if not certificate_ready:
+            if not environment_ready:
+                dependency_step('Preparing the private certificate environment',
+                                ['python3', '-m', 'venv', str(environment)], log_path, log)
+            pip_env = {key: value for key, value in os.environ.items() if not key.startswith('PIP_')}
+            pip_env['PIP_CONFIG_FILE'] = os.devnull
+            dependency_step('Installing the certificate helper',
+                            [str(environment_python), '-m', 'pip', 'install', '--disable-pip-version-check',
+                             '--index-url', 'https://pypi.org/simple', 'certbot==' + CERTBOT_VERSION],
+                            log_path, log, env=pip_env)
 
 
 def ufw_owned_ports():
@@ -521,6 +596,22 @@ def verify_panel(authority):
                        'as well as on the server. No certificate-warning bypass or insecure login was enabled.')
 
 
+def choose_https_access():
+    # Preserve explicit automation flags; an unset flag gets the guided choice.
+    if 'GUARD_CONFIGURE_HTTPS' in os.environ:
+        return os.environ['GUARD_CONFIGURE_HTTPS'] != '0'
+    print('\nChoose how you want to open your panel:')
+    print('  1) HTTPS — open from any device (recommended)')
+    print('     Uses your public IP. Certificate packages may be required.')
+    print('  2) Private — connect through SSH')
+    print('     No certificate packages. The panel stays local to this server.')
+    while True:
+        answer = prompt('Enter 1 or 2, then press Enter', '1')
+        if answer in ('1', '2'):
+            return answer == '1'
+        print('Please enter 1 or 2.', flush=True)
+
+
 def configure():
     if os.geteuid() != 0:
         raise ValueError('HTTPS installation requires root privileges.')
@@ -531,6 +622,10 @@ def configure():
     if origin:
         verify_panel(origin[8:])
         print('Preserved existing HTTPS configuration: ' + origin + '/admin')
+        return
+    if not choose_https_access():
+        print('Private access selected. Certificate packages and HTTPS configuration were skipped.')
+        print('Use the SSH connection and local browser address printed at the end of installation.')
         return
     for path in (CONF, SITES_CONF, PROXY, TOKEN, DROPIN, RENEWAL, RENEW_SERVICE, RENEW_TIMER):
         if path.exists() or path.is_symlink():
@@ -554,6 +649,10 @@ def configure():
     email = os.environ.get('GUARD_HTTPS_EMAIL', '')
     if email and not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email):
         raise ValueError('GUARD_HTTPS_EMAIL must be a valid certificate contact email.')
+    print('\nHTTPS protects browser access to your own server: https://' + authority + '/admin')
+    print('Web server: ' + ('your existing Nginx will be reused.' if shutil.which('nginx') else 'Nginx will be installed.'))
+    print('Certificate helper: Certbot and its Python packages use a private Metric Owl environment.')
+    print('If required, system packages will be installed; Python support dependencies may also be updated.')
     if os.environ.get('GUARD_HTTPS_AGREE_TOS') != '1':
         print('A free HTTPS certificate for your IP is issued by Let’s Encrypt. Terms: ' + TOS)
         if prompt('Accept the certificate authority terms? (yes/no)', 'no').lower() != 'yes':

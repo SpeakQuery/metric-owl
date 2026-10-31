@@ -1,7 +1,7 @@
 # Install Metric Owl
 
-You need **Ubuntu or Debian x86-64 with a public IPv4 address** and SSH access to
-the server. The installer accepts Ubuntu 22.04 / 24.04 / 26.04 LTS and Debian 12 / 13;
+You need **Ubuntu or Debian x86-64** and SSH access to the server. Recommended HTTPS
+access requires a public IPv4 address. The installer accepts Ubuntu 22.04 / 24.04 / 26.04 LTS and Debian 12 / 13;
 see the [validation matrix](PREVIEW.md) for the checks completed on each. A domain and a Metric Owl cloud account are not required.
 
 ## 1. Run the GitHub installer
@@ -14,25 +14,33 @@ curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-previe
 
 The versioned script and application package come from GitHub. It checks release
 checksums, detects the OS and architecture locally, installs the monitoring service
-and prepares HTTPS access. OS detection does not upload a machine inventory to GitHub.
+and offers HTTPS or private SSH access. OS detection does not upload a machine inventory to GitHub.
 [Inspect the script first](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.8/scripts/bootstrap-linux.sh).
 
-## 2. Choose your account
+## 2. Choose your account and access
 
 Choose your administrator username and enter your password twice. Use at least
 8 characters; uppercase letters, numbers and symbols are optional. A short or
-mismatched password is requested again without restarting the installation. The installer
-uses your detected public IP automatically when unambiguous; otherwise it asks
-which IP to use. Review the Let’s Encrypt certificate terms and enter `yes` to
-accept them. The installer prints the panel address when it finishes.
-Existing installations keep their account, MFA settings and history.
+mismatched password is requested again without restarting the installation.
+
+Choose **HTTPS — open from any device (recommended)**, or press Enter for that
+default. The installer uses an unambiguous public IP automatically; otherwise it
+asks which IP to use. Review the Let’s Encrypt terms and enter `yes` to accept.
+
+Prefer private access? Choose **Private — connect through SSH**. It skips certificate
+tools, certificate terms and new HTTPS configuration, then prints the SSH tunnel
+command and local browser address. Existing HTTPS installations retain their access
+configuration; upgrades also keep the account, MFA settings and history.
 
 ## 3. Open your dashboard
 
-Open the printed address, **`https://YOUR_SERVER_IP:PORT/admin`**, in any browser.
+For HTTPS, open the printed address, **`https://YOUR_SERVER_IP:PORT/admin`**, in any browser.
 Sign in with the username and password you chose. No setup key, authenticator
 app or software installation on your viewing device is required. You can enable
 optional two-factor authentication later in **Security & system**.
+
+For private mode, first run the printed SSH command on the computer you are viewing
+from, keep that terminal open, and then open its printed local browser address.
 
 ## Where everything runs
 
@@ -43,9 +51,14 @@ Optional AI, email, MCP and webhooks send selected data to the connections you e
 
 ## Connection requirements
 
-TCP **80** for Metric Owl certificate validation and the chosen panel port must be reachable. The installer selects
+With HTTPS, TCP **80** for Metric Owl certificate validation and the chosen panel port must be reachable. The installer selects
 **8443**, then **9443** or **10443** if occupied, and prints the exact address.
 [Firewall and certificate details](OPERATIONS.md#network-access).
+
+HTTPS setup uses Certbot. If needed, it installs system Python/venv support packages
+and may update their dependencies; already usable dependencies are reused. Progress
+is concise, with detailed dependency logs kept on the server for root. Private mode
+skips certificate dependencies; normal application prerequisites still apply.
 
 Existing hosted domains and their certificates are preserved. Conflicting port
 or web-server configurations stop setup with an explanation rather than silently

@@ -4,9 +4,18 @@ Start with the [short installation guide](INSTALLATION.md). This page covers man
 
 ## Network access
 
-The public IPv4 installer selects port 8443, then 9443 or 10443 if occupied. It prints the exact HTTPS URL after setup. A free local port does not prove the address is reachable from the Internet.
+Fresh installations ask you to choose **HTTPS — open from any device (recommended)**
+or **Private — connect through SSH** after creating the administrator account.
+Enter selects HTTPS. Existing HTTPS installations keep their configuration.
+The HTTPS option selects port 8443, then 9443 or 10443 if occupied. It prints the exact HTTPS URL after setup. A free local port does not prove the address is reachable from the Internet.
 
 Metric Owl uses inbound TCP 80 for certificate validation and renewal, not for its dashboard. Other websites may continue using that port for their own HTTP traffic. The selected panel port must also be reachable. When UFW is active, the installer adds only its required access rules; it does not disable the firewall. If your hosting provider has a separate cloud firewall or security group, allow these ports there. DNS and a domain are not required for IPv4 access.
+
+HTTPS setup uses an isolated Certbot environment and reuses usable dependencies.
+It may install system Python/venv support packages and update their dependencies.
+The terminal shows concise progress; detailed dependency output is kept in root-only
+logs on the server. Private mode skips certificate tools and new HTTPS/Nginx setup;
+the dashboard stays local and is reached through SSH.
 
 ## Open the control center
 

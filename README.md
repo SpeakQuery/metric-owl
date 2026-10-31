@@ -12,22 +12,25 @@ bring-your-own-key AI analysis, and read-only MCP for Codex and other clients.
 
 ## Install on your server
 
-**Ubuntu or Debian x86-64 with a public IPv4 address. No domain or cloud account needed.**
+**Ubuntu or Debian x86-64. Public IPv4 for HTTPS; no domain or cloud account needed.**
 The script detects your OS locally. [Versions and validation](docs/PREVIEW.md). Run on your server:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.8/scripts/bootstrap-linux.sh | sudo bash
 ```
 
-1. Choose your administrator username and enter your password twice.
-   Your public IP is detected automatically when unambiguous. Review and accept
-   the Let’s Encrypt terms to prepare your secure browser address.
+1. Choose your administrator username and enter your password twice. Select
+   **HTTPS — open from any device (recommended)**, then review the detected IP
+   and accept the Let’s Encrypt terms.
 2. Open the printed **`https://YOUR_SERVER_IP:PORT/admin`** address and sign in.
 
 The installer selects **8443**, or **9443 / 10443** if occupied, and prints the exact URL.
-Port **80** (Metric Owl certificate validation) and the selected panel port must be reachable. [Network details](docs/OPERATIONS.md#network-access).
+For HTTPS, port **80** (Metric Owl certificate validation) and the selected panel port must be reachable. [Network details](docs/OPERATIONS.md#network-access).
 
-Nothing is installed on your viewing device. Two-factor authentication is optional.
+For private access, choose **Private — connect through SSH** and follow the printed
+tunnel instructions. This skips certificate tools. HTTPS may install Certbot and
+system Python/venv support packages, including dependency updates; usable dependencies
+are reused. Two-factor authentication is optional.
 
 [Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.8/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
 

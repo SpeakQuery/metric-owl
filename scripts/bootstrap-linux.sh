@@ -69,7 +69,7 @@ if [[ "${GUARD_PREPARE_ADMIN:-1}" != 0 ]]; then
   fi
 fi
 if [[ "${GUARD_CONFIGURE_HTTPS:-1}" != 0 ]]; then
-  printf '\nStep 2 of 2: Prepare your secure browser address.\n'
+  printf '\nStep 2 of 2: Choose how to access your panel.\n'
   if ! python3 "$stage/scripts/configure-https.py"; then
     printf '\nSETUP INCOMPLETE: The application is running locally, but your browser address is not ready.\nCorrect the reported connection issue and run this installation command again.\nAny administrator account you created, settings and history are preserved.\n' >&2
     exit 1
