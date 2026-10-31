@@ -36,11 +36,11 @@ are reused. Two-factor authentication is optional.
 
 ## Watch Metric Owl in 48 seconds
 
-[![Watch the 48-second Metric Owl overview: live monitoring, optional AI analysis and read-only MCP.](website/public/assets/demo/teaser-v2.gif)](https://metricowl.cloud/assets/demo/metric-owl-overview-v3.mp4)
+[![Watch the 48-second Metric Owl overview: live monitoring, optional AI analysis and read-only MCP.](website/public/assets/demo/teaser-v2.gif)](https://metricowl.cloud/assets/demo/metric-owl-overview-v4.mp4)
 
-An English-narrated motion story with background music: from a live server to clear alerts, reports and AI context.
+A continuous English introduction to free, self-hosted monitoring: clear alerts, local history and optional email, AI and read-only MCP connections.
 Illustrative signals are labeled as example data.
-[Watch the full video](https://metricowl.cloud/assets/demo/metric-owl-overview-v3.mp4).
+[Watch the full video](https://metricowl.cloud/assets/demo/metric-owl-overview-v4.mp4).
 
 Music: [“Tech Live” by Kevin MacLeod](https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1700030),
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Edited excerpt with volume adjustment and fades.
