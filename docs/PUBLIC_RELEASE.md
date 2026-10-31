@@ -6,6 +6,13 @@ release tags and assets retain their published contents. Publication still requi
 the source/asset audit and anonymous-download checks below. No script or workflow
 changes repository visibility automatically.
 
+## Current release target: v0.1.0-preview.9
+
+This release updates the default Overview and alert-rule presentation. It must use
+a freshly built application bundle; the installer-only binary-reuse exception
+below does not apply. Preserve the preview.8 license change as historical release
+information and keep earlier tags and assets unchanged.
+
 ## Source review
 
 Use scripts/audit-release-source.py to generate an allowlisted source manifest. Review the exact staged index with --staged before committing. The heuristic audit rejects known token patterns, private key headers, operator paths and excluded data files; it complements human review rather than proving that no secret exists.

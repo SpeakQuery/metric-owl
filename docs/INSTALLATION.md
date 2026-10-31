@@ -9,13 +9,13 @@ see the [validation matrix](PREVIEW.md) for the checks completed on each. A doma
 Paste this into your **server’s terminal**:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.8/scripts/bootstrap-linux.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.9/scripts/bootstrap-linux.sh | sudo bash
 ```
 
 The versioned script and application package come from GitHub. It checks release
 checksums, detects the OS and architecture locally, installs the monitoring service
 and offers HTTPS or private SSH access. OS detection does not upload a machine inventory to GitHub.
-[Inspect the script first](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.8/scripts/bootstrap-linux.sh).
+[Inspect the script first](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.9/scripts/bootstrap-linux.sh).
 
 ## 2. Choose your account and access
 

@@ -78,3 +78,20 @@ mismatched installer passwords are requested again in the same session. Authenti
 and browser regressions checked the seven/eight-character boundary, password changes,
 session revocation and optional MFA. This is separate from the preview.5 full-host
 installation evidence above.
+
+## Overview and alert clarity: preview.9
+
+The dashboard opens on Overview with live measurements and a compact table of saved
+CPU, memory and disk rules. Enabled/disabled states, thresholds and time windows
+come from the installation's actual configuration. Setup guidance and connections
+are optional; rule packs stay available below the saved-rule table. Adding a custom
+rule opens its editor without changing existing rules. Email status describes the
+saved connection and verification state, not a claim that a message was delivered.
+
+Seven focused browser fixture checks passed for the default landing page, custom
+and disabled rules, unavailable and intentionally empty rule lists, the new-rule
+editor, the save-before-load safeguard, and dark/light layouts at desktop and mobile
+widths. Two existing browser checks against a local running agent also passed for
+authentication, live data and the MCP/AI screens. These are application/UI regressions;
+they do not replace the versioned Linux installation evidence above or establish
+actual SMTP inbox delivery.

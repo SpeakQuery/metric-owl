@@ -16,7 +16,7 @@ bring-your-own-key AI analysis, and read-only MCP for Codex and other clients.
 The script detects your OS locally. [Versions and validation](docs/PREVIEW.md). Run on your server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.8/scripts/bootstrap-linux.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.9/scripts/bootstrap-linux.sh | sudo bash
 ```
 
 1. Choose your administrator username and enter your password twice. Select
@@ -32,7 +32,7 @@ tunnel instructions. This skips certificate tools. HTTPS may install Certbot and
 system Python/venv support packages, including dependency updates; usable dependencies
 are reused. Two-factor authentication is optional.
 
-[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.8/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
+[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.9/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
 
 ## Watch Metric Owl in 48 seconds
 
