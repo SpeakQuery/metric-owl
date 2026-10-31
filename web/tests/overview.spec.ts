@@ -91,15 +91,16 @@ test('adding a rule opens the editor without changing existing alarms', async ({
 
 test('a new rule cannot overwrite existing rules while they are still loading', async ({ page }) => {
   const writes = await fixture(page);
-  let loads = 0;
+  let blockRuleLoad = false;
   let continueLoading: () => void = () => {};
   const pending = new Promise<void>(resolve => { continueLoading = resolve; });
   await page.route('**/api/v1/rules', async route => {
-    if (++loads > 1) await pending;
+    if (blockRuleLoad) await pending;
     await route.fulfill({ json: defaults });
   });
   await page.goto('/admin/');
   await expect(page.getByRole('table', { name: 'CPU, memory and disk alert rules' })).toBeVisible();
+  blockRuleLoad = true;
   await page.getByRole('button', { name: 'Add custom rule', exact: true }).click();
   const save = page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true });
   await expect(save).toBeDisabled();
