@@ -49,24 +49,33 @@ def local_status():
 
 
 def administrator_credentials():
-    username = prompt('Choose your Metric Owl administrator username', 'admin')
-    if not re.fullmatch(r'[A-Za-z0-9._@-]{3,64}', username):
-        raise ValueError('Use 3–64 letters, digits, dots, underscores, @ or hyphens for your username.')
     try:
+        username = prompt('Choose your Metric Owl administrator username', 'admin')
+        if not re.fullmatch(r'[A-Za-z0-9._@-]{3,64}', username):
+            raise ValueError('Use 3–64 letters, digits, dots, underscores, @ or hyphens for your username.')
         # A terminal is not seekable: Python's buffered r+ stream rejects it.
         # getpass reads its own controlling terminal and only writes to this stream.
         with open('/dev/tty', 'w') as terminal:
             with warnings.catch_warnings():
                 warnings.simplefilter('error', getpass.GetPassWarning)
-                password = getpass.getpass('Create a password (at least 14 characters): ', stream=terminal)
-                confirmation = getpass.getpass('Enter the password again: ', stream=terminal)
-    except (OSError, EOFError, getpass.GetPassWarning):
+                while True:
+                    password = getpass.getpass('Create a password (at least 8 characters): ', stream=terminal)
+                    if len(password) < 8:
+                        print('Use at least 8 characters. Please try again.', file=terminal, flush=True)
+                        continue
+                    if len(password.encode('utf-8')) > 256:
+                        print('That password is too long (maximum 256 UTF-8 bytes). Please try again.',
+                              file=terminal, flush=True)
+                        continue
+                    confirmation = getpass.getpass('Enter the password again: ', stream=terminal)
+                    if password != confirmation:
+                        print('Passwords did not match. Please try again.', file=terminal, flush=True)
+                        continue
+                    return {'username': username, 'password': password}
+    except (EOFError, KeyboardInterrupt):
+        raise ValueError('Administrator setup was cancelled. No password was saved.') from None
+    except (OSError, getpass.GetPassWarning):
         raise ValueError('Administrator setup needs your SSH terminal. No password was saved.') from None
-    if password != confirmation:
-        raise ValueError('Passwords did not match. Run the installer again; no account was overwritten.')
-    if not 14 <= len(password.encode()) <= 256:
-        raise ValueError('Use a password of 14–256 bytes. A long passphrase works well.')
-    return {'username': username, 'password': password}
 
 
 def prepare_administrator():

@@ -58,7 +58,7 @@ test('installer password login with optional authenticator enrollment and remova
  const {spawn} = await import('node:child_process');
  const dir = await mkdtemp(join(tmpdir(), 'metricowl-installer-browser-'));
  const username = 'installer-admin';
- const password = 'Installer-test-passphrase-2026';
+ let password = 'abcdefgh';
  let child: ReturnType<typeof spawn> | undefined;
  try {
   await new Promise<void>((resolve, reject) => {
@@ -83,6 +83,18 @@ test('installer password login with optional authenticator enrollment and remova
   await page.getByRole('button',{name:'Security & system',exact:true}).click();
   await expect(page.getByText('Optional · Not enabled',{exact:true})).toBeVisible();
   await expect(page.getByLabel('New verification code',{exact:true})).toHaveCount(0);
+  await expect(page.getByLabel('New password',{exact:true})).toHaveAttribute('minlength','8');
+  await page.getByLabel('New password',{exact:true}).fill('abcdefg');
+  await page.getByRole('button',{name:'Change password and end all sessions',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('at least 8 characters');
+  password = 'ijklmnop';
+  await page.getByLabel('New password',{exact:true}).fill(password);
+  await page.getByRole('button',{name:'Change password and end all sessions',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Welcome back',exact:true})).toBeVisible();
+  await page.getByLabel('Username',{exact:true}).fill(username);
+  await page.getByLabel('Password',{exact:true}).fill(password);
+  await page.getByRole('button',{name:'Secure sign in',exact:true}).click();
+  await expect(page.getByText('Optional · Not enabled',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Enable authenticator',exact:true}).click();
   const qr = page.getByRole('img',{name:'Authenticator setup QR code',exact:true});
   await expect(qr).toBeVisible();

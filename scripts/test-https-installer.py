@@ -21,9 +21,57 @@ spec.loader.exec_module(module)
 
 
 class InstallerTests(unittest.TestCase):
-    def test_real_terminal_prompts_with_piped_stdin_and_hidden_passwords(self):
+    def terminal_flow(self, script, exchanges, hidden=()):
         # No mocked prompt/getpass: exercise the same controlling-terminal behavior
         # as curl | sudo bash -> python while stdin is a pipe, not the TTY.
+        read_end, write_end = os.pipe()
+        pid, terminal = pty.fork()
+        if pid == 0:
+            os.close(write_end)
+            os.dup2(read_end, 0)
+            os.close(read_end)
+            os.execv(sys.executable, [sys.executable, '-c', script, str(ROOT / 'scripts/configure-https.py')])
+        os.close(read_end)
+        os.close(write_end)
+        transcript = bytearray()
+        consumed = 0
+        def expect(text):
+            nonlocal consumed
+            deadline = time.monotonic() + 8
+            while transcript.find(text.encode(), consumed) < 0:
+                remaining = deadline - time.monotonic()
+                self.assertGreater(remaining, 0, 'Timed out waiting for terminal prompt: ' + text)
+                if not select.select([terminal], [], [], remaining)[0]:
+                    continue
+                try:
+                    chunk = os.read(terminal, 8192)
+                except OSError:
+                    self.fail('Terminal closed before expected prompt: ' + text)
+                self.assertTrue(chunk, 'Terminal ended before expected prompt: ' + text)
+                transcript.extend(chunk)
+            consumed = transcript.find(text.encode(), consumed) + len(text.encode())
+        reaped = False
+        try:
+            for text, answer in exchanges:
+                expect(text)
+                if answer is not None:
+                    os.write(terminal, answer.encode())
+            expect('TERMINAL_FLOW_OK')
+            _, status = os.waitpid(pid, 0)
+            reaped = True
+            self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+            for secret in hidden:
+                self.assertNotIn(secret.encode(), transcript)
+        finally:
+            os.close(terminal)
+            if not reaped:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                os.waitpid(pid, 0)
+
+    def test_real_terminal_prompts_retry_invalid_passwords_without_echo(self):
         script = '''
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location('installer', sys.argv[1])
@@ -35,57 +83,59 @@ address = m.choose_public_ip()
 terms = m.prompt('Accept the certificate authority terms? (yes/no)', 'no')
 credentials = m.administrator_credentials()
 assert address == '8.8.8.8' and terms == 'yes'
-assert credentials['username'] == 'terminal-admin'
-assert credentials['password'] == 'Synthetic-terminal-passphrase-814'
+assert credentials == {'username': 'terminal-admin', 'password': 'abcdefgh'}
+unicode_credentials = m.administrator_credentials()
+assert unicode_credentials == {'username': 'terminal-admin', 'password': 'çüğışöİa'}
+maximum_credentials = m.administrator_credentials()
+assert maximum_credentials == {'username': 'terminal-admin', 'password': 'é' * 128}
 print('TERMINAL_FLOW_OK', flush=True)
 '''
-        read_end, write_end = os.pipe()
-        pid, terminal = pty.fork()
-        if pid == 0:
-            os.close(write_end)
-            os.dup2(read_end, 0)
-            os.close(read_end)
-            os.execv(sys.executable, [sys.executable, '-c', script, str(ROOT / 'scripts/configure-https.py')])
-        os.close(read_end)
-        os.close(write_end)
-        transcript = bytearray()
-        def expect(text):
-            deadline = time.monotonic() + 8
-            while text.encode() not in transcript:
-                remaining = deadline - time.monotonic()
-                self.assertGreater(remaining, 0, 'Timed out waiting for terminal prompt: ' + text)
-                if not select.select([terminal], [], [], remaining)[0]:
-                    continue
-                try:
-                    chunk = os.read(terminal, 8192)
-                except OSError:
-                    self.fail('Terminal closed before expected prompt: ' + text)
-                self.assertTrue(chunk, 'Terminal ended before expected prompt: ' + text)
-                transcript.extend(chunk)
-        reaped = False
-        try:
-            for text, answer in [
-                ('Enter this server’s public IPv4 address, then press Enter: ', '8.8.8.8\n'),
-                ('Accept the certificate authority terms? (yes/no) [no]: ', 'yes\n'),
-                ('Choose your Metric Owl administrator username [admin]: ', 'terminal-admin\n'),
-                ('Create a password (at least 14 characters): ', 'Synthetic-terminal-passphrase-814\n'),
-                ('Enter the password again: ', 'Synthetic-terminal-passphrase-814\n'),
-            ]:
-                expect(text)
-                os.write(terminal, answer.encode())
-            expect('TERMINAL_FLOW_OK')
-            _, status = os.waitpid(pid, 0)
-            reaped = True
-            self.assertEqual(os.waitstatus_to_exitcode(status), 0)
-            self.assertNotIn(b'Synthetic-terminal-passphrase-814', transcript)
-        finally:
-            os.close(terminal)
-            if not reaped:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                os.waitpid(pid, 0)
+        create = 'Create a password (at least 8 characters): '
+        confirm = 'Enter the password again: '
+        username = 'Choose your Metric Owl administrator username [admin]: '
+        self.terminal_flow(script, [
+            ('Enter this server’s public IPv4 address, then press Enter: ', '8.8.8.8\n'),
+            ('Accept the certificate authority terms? (yes/no) [no]: ', 'yes\n'),
+            (username, 'terminal-admin\n'),
+            (create, '1234567\n'),
+            ('Use at least 8 characters. Please try again.', None),
+            (create, 'çüğışöİ\n'),  # Seven Unicode characters, despite 14 UTF-8 bytes.
+            ('Use at least 8 characters. Please try again.', None),
+            (create, 'é' * 129 + '\n'),  # 258 UTF-8 bytes exceeds the upper limit.
+            ('That password is too long (maximum 256 UTF-8 bytes). Please try again.', None),
+            (create, 'abcdefgh\n'),
+            (confirm, 'abcdEfgh\n'),
+            ('Passwords did not match. Please try again.', None),
+            (create, 'abcdefgh\n'),
+            (confirm, 'abcdefgh\n'),  # Exactly eight plain letters, no complexity requirements.
+            (username, 'terminal-admin\n'),
+            (create, 'çüğışöİa\n'),
+            (confirm, 'çüğışöİa\n'),
+            (username, 'terminal-admin\n'),
+            (create, 'é' * 128 + '\n'),  # Exactly 256 UTF-8 bytes is allowed.
+            (confirm, 'é' * 128 + '\n'),
+        ], hidden=['1234567', 'çüğışöİ', 'é' * 129, 'abcdefgh', 'abcdEfgh', 'çüğışöİa', 'é' * 128])
+
+    def test_real_terminal_password_eof_and_interrupt_cancel_cleanly(self):
+        script = '''
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('installer', sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+try:
+    m.administrator_credentials()
+except ValueError as error:
+    assert str(error) == 'Administrator setup was cancelled. No password was saved.'
+else:
+    raise AssertionError('Cancelled input must not return credentials')
+print('TERMINAL_FLOW_OK', flush=True)
+'''
+        for cancel in ['\x04', '\x03']:
+            with self.subTest(cancel=repr(cancel)):
+                self.terminal_flow(script, [
+                    ('Choose your Metric Owl administrator username [admin]: ', 'terminal-admin\n'),
+                    ('Create a password (at least 8 characters): ', cancel),
+                ])
 
     def test_admin_prepare_skips_existing_or_ready_account(self):
         for status in [{'configured': True}, {'configured': False, 'enrollment_ready': True}]:

@@ -611,8 +611,8 @@ impl Auth {
 }
 fn validate_password(p: &str) -> Result<()> {
     ensure!(
-        p.chars().count() >= 14 && p.len() <= 256,
-        "Password must contain at least 14 characters and at most 256 bytes"
+        p.chars().count() >= 8 && p.len() <= 256,
+        "Password must contain at least 8 characters and at most 256 bytes"
     );
     Ok(())
 }
@@ -706,6 +706,28 @@ pub fn constant(a: &str, b: &str) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn password_minimum_counts_characters_without_complexity_requirements() {
+        for short in ["abcdefg", "1234567", "ééééééé", "🦉🦉🦉🦉🦉🦉🦉"] {
+            assert!(validate_password(short).is_err());
+        }
+        for valid in ["abcdefgh", "12345678", "éééééééé", "🦉🦉🦉🦉🦉🦉🦉🦉"]
+        {
+            assert!(validate_password(valid).is_ok());
+        }
+    }
+    #[test]
+    fn password_maximum_remains_256_utf8_bytes() {
+        for (valid, invalid) in [
+            ("a".repeat(256), "a".repeat(257)),
+            ("é".repeat(128), "é".repeat(129)),
+            ("🦉".repeat(64), "🦉".repeat(65)),
+        ] {
+            assert_eq!(valid.len(), 256);
+            assert!(validate_password(&valid).is_ok());
+            assert!(validate_password(&invalid).is_err());
+        }
+    }
+    #[test]
     fn totp_replay_rejected() {
         let t = make_totp(&Secret::generate_secret().to_encoded().to_string(), "admin").unwrap();
         let step = guard_core::now() as u64 / 30;
@@ -787,6 +809,73 @@ mod installer_account_tests {
             )
             .unwrap();
         store.put("installer_pending", raw).await.unwrap();
+    }
+    #[tokio::test]
+    async fn eight_character_password_works_for_installer_login_and_password_change() {
+        let (dir, store, auth) = fixture().await;
+        assert!(
+            auth.prepare_admin("admin".into(), "abcdefg".into(), dir.path())
+                .await
+                .is_err()
+        );
+        assert!(!auth.configured().await.unwrap());
+        auth.prepare_admin("admin".into(), "abcdefgh".into(), dir.path())
+            .await
+            .unwrap();
+        let (session, _) = auth
+            .login("admin".into(), "abcdefgh".into(), String::new())
+            .await
+            .unwrap();
+        let before = store.get("admin").await.unwrap();
+        assert!(
+            auth.change_password(&session, "abcdefg".into())
+                .await
+                .is_err()
+        );
+        assert_eq!(store.get("admin").await.unwrap(), before);
+        assert!(auth.session(&session, false).await.is_ok());
+        auth.change_password(&session, "ijklmnop".into())
+            .await
+            .unwrap();
+        assert!(auth.session(&session, false).await.is_err());
+        assert!(
+            auth.login("admin".into(), "abcdefgh".into(), String::new())
+                .await
+                .is_err()
+        );
+        assert!(
+            auth.login("admin".into(), "ijklmnop".into(), String::new())
+                .await
+                .is_ok()
+        );
+    }
+    #[tokio::test]
+    async fn manual_setup_uses_the_same_eight_character_password_policy() {
+        let (dir, store, auth) = fixture().await;
+        auth.bootstrap(dir.path()).await.unwrap();
+        let key = std::fs::read_to_string(dir.path().join("setup-key")).unwrap();
+        assert!(
+            auth.begin(key.clone(), "admin".into(), "abcdefg".into())
+                .await
+                .is_err()
+        );
+        assert!(store.get("pending_admin").await.unwrap().is_none());
+        let result = auth
+            .begin(key, "admin".into(), "abcdefgh".into())
+            .await
+            .unwrap();
+        assert!(result["uri"].as_str().unwrap().starts_with("otpauth://"));
+        let pending: Pending = serde_json::from_str(
+            &auth
+                .unseal(&store.get("pending_admin").await.unwrap().unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            verify_password("abcdefgh".into(), pending.password)
+                .await
+                .unwrap()
+        );
     }
     #[tokio::test]
     async fn installer_creates_password_only_admin_and_cannot_overwrite_it() {

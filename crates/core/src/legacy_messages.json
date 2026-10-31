@@ -110,7 +110,7 @@
   "MFA değişikliği başlatılmadı": "MFA rotation has not been started",
   "MFA değişikliği süresi doldu veya oturum değişti": "MFA rotation expired or the session changed",
   "Geçersiz MFA verisi": "Invalid MFA data",
-  "Parola 14–256 karakter olmalı": "Password must contain at least 14 characters and at most 256 bytes",
+  "Parola 14–256 karakter olmalı": "Password must contain at least 8 characters and at most 256 bytes",
   "Parola işlenemedi": "Unable to process password",
   "Geçersiz veya kullanılmış doğrulama kodu": "Invalid or previously used verification code",
   "Geçersiz hedef": "Invalid target",

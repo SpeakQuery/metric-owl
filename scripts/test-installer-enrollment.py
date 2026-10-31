@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get('GUARD_TEST_BIN', ROOT / 'target/debug/server-guard'))
 ORIGIN = 'https://panel.example.invalid'
 USERNAME = 'installer_admin'
-PASSWORD = 'isolated-installer-enrollment-2026'
+PASSWORD = 'abcdefgh'  # Synthetic eight-character boundary; no complexity rule.
 
 
 def totp(secret):
@@ -38,6 +38,7 @@ with tempfile.TemporaryDirectory(prefix='metric-owl-enrollment-') as temp:
         result = subprocess.run([str(BIN), '--data-dir', str(data), 'prepare-admin'], input=json.dumps(payload), capture_output=True, text=True)
         assert PASSWORD not in result.stdout + result.stderr
         return result
+    assert prepare({**credentials, 'password': 'abcdefg'}).returncode != 0
     prepared = prepare(credentials)
     assert prepared.returncode == 0 and json.loads(prepared.stdout) == {'configured': True, 'mfa_required': False}
     assert prepare(credentials).returncode != 0

@@ -15,7 +15,7 @@ bring-your-own-key AI analysis, and read-only MCP for Codex and other clients.
 The script detects your OS locally. [Versions and validation](docs/PREVIEW.md). Run on your server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.6/scripts/bootstrap-linux.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.7/scripts/bootstrap-linux.sh | sudo bash
 ```
 
 1. Choose your administrator username and enter your password twice.
@@ -28,7 +28,7 @@ Port **80** (Metric Owl certificate validation) and the selected panel port must
 
 Nothing is installed on your viewing device. Two-factor authentication is optional.
 
-[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.6/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
+[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.7/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
 
 ## Watch Metric Owl in 48 seconds
 
