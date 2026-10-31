@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One command on the server: curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.5/scripts/bootstrap-linux.sh | sudo bash
+# One command on the server: curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.6/scripts/bootstrap-linux.sh | sudo bash
 # GitHub release and script versions stay pinned. Never bypass checksum validation.
 set -euo pipefail
 set +x
@@ -14,7 +14,7 @@ case "${ID:-}:${VERSION_ID:-}" in
   ubuntu:22.04|ubuntu:24.04|ubuntu:26.04|debian:12|debian:13) ;;
   *) printf 'This preview supports Ubuntu 22.04/24.04/26.04 LTS and Debian 12/13, x86-64.\n' >&2; exit 1 ;;
 esac
-release_url="${GUARD_RELEASE_URL:-https://github.com/SpeakQuery/metric-owl/releases/download/v0.1.0-preview.5}"
+release_url="${GUARD_RELEASE_URL:-https://github.com/SpeakQuery/metric-owl/releases/download/v0.1.0-preview.6}"
 [[ "$release_url" =~ ^https://github\.com/SpeakQuery/metric-owl/releases/download/v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]] || {
   printf 'GUARD_RELEASE_URL must identify an official, versioned Metric Owl GitHub release.\n' >&2; exit 1;
 }
@@ -61,13 +61,18 @@ mv "$stage/server-guard.service" "$stage/packaging/systemd/"
 mv "$stage/LICENSE" "$stage/BINARY-LICENSE.txt" "$stage/THIRD-PARTY-NOTICES.txt" "$stage/release/"
 (cd "$stage/release" && sha256sum server-guard > SHA256SUMS)
 GUARD_INSTALL_QUIET=1 bash "$stage/scripts/install-linux.sh" "$stage/release"
-if [[ "${GUARD_CONFIGURE_HTTPS:-1}" != 0 ]]; then
-  if ! python3 "$stage/scripts/configure-https.py"; then
-    printf '\nThe monitoring application is installed privately, but HTTPS setup is incomplete.\nCorrect the reported IP/port/configuration issue and run this same installation command again.\nYour account, settings and history are retained.\n' >&2
+if [[ "${GUARD_PREPARE_ADMIN:-1}" != 0 ]]; then
+  printf '\nStep 1 of 2: Create your Metric Owl administrator account.\n'
+  if ! python3 "$stage/scripts/configure-https.py" --prepare-admin; then
+    printf '\nSETUP INCOMPLETE: Administrator setup did not finish.\nRun this installation command again to continue; existing accounts and history are preserved.\n' >&2
     exit 1
   fi
 fi
-if [[ "${GUARD_PREPARE_ADMIN:-1}" != 0 ]]; then
-  python3 "$stage/scripts/configure-https.py" --prepare-admin
+if [[ "${GUARD_CONFIGURE_HTTPS:-1}" != 0 ]]; then
+  printf '\nStep 2 of 2: Prepare your secure browser address.\n'
+  if ! python3 "$stage/scripts/configure-https.py"; then
+    printf '\nSETUP INCOMPLETE: The application is running locally, but your browser address is not ready.\nCorrect the reported connection issue and run this installation command again.\nAny administrator account you created, settings and history are preserved.\n' >&2
+    exit 1
+  fi
 fi
 bash "$stage/scripts/show-setup.sh" /var/lib/server-guard ssh 4877 "$(systemctl show server-guard -p MainPID --value)"

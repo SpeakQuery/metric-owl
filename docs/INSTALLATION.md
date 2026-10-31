@@ -9,19 +9,20 @@ see the [validation matrix](PREVIEW.md) for the checks completed on each. A doma
 Paste this into your **server’s terminal**:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.5/scripts/bootstrap-linux.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.6/scripts/bootstrap-linux.sh | sudo bash
 ```
 
 The versioned script and application package come from GitHub. It checks release
 checksums, detects the OS and architecture locally, installs the monitoring service
 and prepares HTTPS access. OS detection does not upload a machine inventory to GitHub.
-[Inspect the script first](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.5/scripts/bootstrap-linux.sh).
+[Inspect the script first](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.6/scripts/bootstrap-linux.sh).
 
-## 2. Confirm your server and choose your account
+## 2. Choose your account
 
-Confirm the detected public IP. Review the Let’s Encrypt certificate terms and
-enter `yes` to accept them. Then choose your administrator username and enter
-your password twice. The installer prints the panel address when it finishes.
+Choose your administrator username and enter your password twice. The installer
+uses your detected public IP automatically when unambiguous; otherwise it asks
+which IP to use. Review the Let’s Encrypt certificate terms and enter `yes` to
+accept them. The installer prints the panel address when it finishes.
 Existing installations keep their account, MFA settings and history.
 
 ## 3. Open your dashboard

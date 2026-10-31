@@ -16,6 +16,8 @@ Collect third-party licenses, then run package-linux-release.sh on Ubuntu 24.04 
 
 The manually triggered validation workflow is bounded to one Ubuntu job. It may upload short-lived private CI artifacts. It does not create releases, publish source, change visibility or install to an operator's server.
 
+For an installer-only patch, an already published binary may be reused only when the complete runtime inputs (`crates/`, `web/`, Cargo manifests/lockfile, Rust toolchain and service packaging) are unchanged from its source commit. Verify the previous release checksum, record `binary_source_commit` and `binary_reused_from` separately from the new installer `source_commit`, and run the changed installer tests on Linux. Do not describe a reused binary as freshly rebuilt or claim a new end-to-end customer installation before it has passed.
+
 ## Preview acceptance before publication
 
 Create a prerelease for the reviewed tag. Upload the versioned binary, bootstrap/install/HTTPS helpers, service unit, metadata, notices, licenses, archive and SHA256SUMS. Record the actual repository visibility and exact commit. Keep earlier release tags and assets immutable.

@@ -164,6 +164,18 @@ def discover_public_ip():
     return addresses[0] if len(addresses) == 1 else ''
 
 
+def choose_public_ip():
+    # An explicit override is authoritative. Otherwise a uniquely discovered
+    # address (or the current SSH target) needs no redundant confirmation.
+    supplied = os.environ.get('GUARD_PUBLIC_IP')
+    value = supplied if supplied is not None else discover_public_ip()
+    if supplied is None and not value:
+        value = prompt('Enter this server’s public IPv4 address, then press Enter')
+    address = public_ip(value)
+    print('Using public IPv4 address: ' + address, flush=True)
+    return address
+
+
 def public_origin(value):
     if not isinstance(value, str) or not value.startswith('https://'):
         raise ValueError('Invalid HTTPS access marker.')
@@ -240,8 +252,15 @@ def host_collision(config, address):
 def select_conf(config):
     # conf.d is commonly included before sites-enabled. Appending the new IP host
     # after existing sites preserves their implicit default host as well as explicit defaults.
-    if re.search(r'include\s+/etc/nginx/sites-enabled/\*\s*;', config):
-        later = [p for p in SITES_CONF.parent.iterdir() if p.name >= SITES_CONF.name]
+    # CloudPanel uses *.conf rather than *. Only consider files included by the
+    # actual glob; a later-sorting backup file cannot affect *.conf site ordering.
+    includes = re.findall(
+        r'''(?m)^[ \t]*include[ \t]+(["']?)/etc/nginx/sites-enabled/(\*(?:\.conf)?)\1[ \t]*;[ \t]*(?:\#.*)?$''',
+        config)
+    if includes:
+        patterns = {pattern for _, pattern in includes}
+        later = [p for pattern in patterns for p in SITES_CONF.parent.glob(pattern)
+                 if p.name >= SITES_CONF.name]
         if later:
             raise ValueError('The Nginx site ordering needs operator review; existing default hosts were preserved.')
         return SITES_CONF
@@ -507,8 +526,7 @@ def configure():
     for path in (CONF, SITES_CONF, PROXY, TOKEN, DROPIN, RENEWAL, RENEW_SERVICE, RENEW_TIMER):
         if path.exists() or path.is_symlink():
             raise ValueError('Existing Metric Owl HTTPS files need review: ' + str(path) + '. Nothing was overwritten.')
-    supplied_ip = os.environ.get('GUARD_PUBLIC_IP')
-    address = public_ip(supplied_ip or prompt('Your server’s public IPv4 address', discover_public_ip()))
+    address = choose_public_ip()
     port = choose_panel_port()
     authority = f'{address}:{port}'
     listeners = run(['ss', '-H', '-ltnp', 'sport', '=', ':80']).stdout.strip()

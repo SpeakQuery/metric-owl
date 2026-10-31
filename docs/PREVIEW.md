@@ -51,3 +51,11 @@ existing 8443 listener remained untouched.
 Fresh SSH MCP checks passed for server information, current readings and aligned
 CPU/RAM history; restricted scopes and revoked access were rejected, with no AI
 requests made.
+
+## Installer patch: preview.6
+
+Fixes detection of the CloudPanel `sites-enabled/*.conf` layout. Administrator
+creation is now first; a uniquely detected public IP is used automatically.
+The application binary is unchanged from preview.5. Installer regression coverage
+is separate from the preview.5 full-host acceptance above; a complete customer
+CloudPanel installation remains to be verified.

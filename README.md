@@ -4,7 +4,7 @@
 
 **Turn server signals into a conversation you can understand.**
 Watch live performance, catch problems with local rules, and give your AI assistant
-the evidence to explain what changed. Free self-hosted monitoring, optional
+the evidence to explain what changed. Free, self-hosted server monitoring, optional
 bring-your-own-key AI analysis, and read-only MCP for Codex and other clients.
 
 [Website](https://metricowl.cloud/) · [Install](#install-on-your-server) · [AI analysis](#from-an-alert-to-an-explanation) · [MCP](#ask-your-server-a-better-question) · [Preview scope](docs/PREVIEW.md)
@@ -15,11 +15,12 @@ bring-your-own-key AI analysis, and read-only MCP for Codex and other clients.
 The script detects your OS locally. [Versions and validation](docs/PREVIEW.md). Run on your server:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.5/scripts/bootstrap-linux.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.6/scripts/bootstrap-linux.sh | sudo bash
 ```
 
-1. Confirm the detected IP, review and accept the Let’s Encrypt terms, then
-   choose your administrator username and enter your password twice.
+1. Choose your administrator username and enter your password twice.
+   Your public IP is detected automatically when unambiguous. Review and accept
+   the Let’s Encrypt terms to prepare your secure browser address.
 2. Open the printed **`https://YOUR_SERVER_IP:PORT/admin`** address and sign in.
 
 The installer selects **8443**, or **9443 / 10443** if occupied, and prints the exact URL.
@@ -27,7 +28,7 @@ Port **80** (Metric Owl certificate validation) and the selected panel port must
 
 Nothing is installed on your viewing device. Two-factor authentication is optional.
 
-[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.5/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
+[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.6/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
 
 ## Watch Metric Owl in 48 seconds
 
@@ -120,4 +121,4 @@ Your account and history are retained. [Removal details](docs/OPERATIONS.md#remo
 
 Official binaries are free under the [binary license](BINARY-LICENSE.txt).
 Public source remains proprietary under [LICENSE](LICENSE), not an open-source license.
-Optional provider charges are separate.
+Optional AI provider fees are the user’s responsibility and are billed separately by the chosen provider.

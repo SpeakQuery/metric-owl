@@ -29,7 +29,9 @@ import importlib.util, sys
 spec = importlib.util.spec_from_file_location('installer', sys.argv[1])
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
-address = m.prompt('Your server public IPv4 address', '8.8.8.8')
+m.os.environ.pop('GUARD_PUBLIC_IP', None)
+m.discover_public_ip = lambda: ''
+address = m.choose_public_ip()
 terms = m.prompt('Accept the certificate authority terms? (yes/no)', 'no')
 credentials = m.administrator_credentials()
 assert address == '8.8.8.8' and terms == 'yes'
@@ -63,7 +65,7 @@ print('TERMINAL_FLOW_OK', flush=True)
         reaped = False
         try:
             for text, answer in [
-                ('Your server public IPv4 address [8.8.8.8]: ', '\n'),
+                ('Enter this server’s public IPv4 address, then press Enter: ', '8.8.8.8\n'),
                 ('Accept the certificate authority terms? (yes/no) [no]: ', 'yes\n'),
                 ('Choose your Metric Owl administrator username [admin]: ', 'terminal-admin\n'),
                 ('Create a password (at least 14 characters): ', 'Synthetic-terminal-passphrase-814\n'),
@@ -200,6 +202,37 @@ print('TERMINAL_FLOW_OK', flush=True)
         with patch.dict(module.os.environ, {}, clear=True), patch.object(module, 'run', return_value=result):
             self.assertEqual(module.discover_public_ip(), '')
 
+    def test_discovered_public_ip_is_announced_without_confirmation(self):
+        with patch.dict(module.os.environ, {}, clear=True), \
+                patch.object(module, 'discover_public_ip', return_value='8.8.8.8'), \
+                patch.object(module, 'prompt') as prompt, patch('builtins.print') as output:
+            self.assertEqual(module.choose_public_ip(), '8.8.8.8')
+        prompt.assert_not_called()
+        output.assert_called_once_with('Using public IPv4 address: 8.8.8.8', flush=True)
+
+    def test_explicit_public_ip_overrides_discovery_and_invalid_value_never_falls_back(self):
+        for value in ['1.1.1.1', '', '127.0.0.1', 'https://8.8.8.8']:
+            with self.subTest(value=value), \
+                    patch.dict(module.os.environ, {'GUARD_PUBLIC_IP': value}, clear=True), \
+                    patch.object(module, 'discover_public_ip') as discover, \
+                    patch.object(module, 'prompt') as prompt, patch('builtins.print'):
+                if value == '1.1.1.1':
+                    self.assertEqual(module.choose_public_ip(), value)
+                else:
+                    with self.assertRaises(ValueError):
+                        module.choose_public_ip()
+                discover.assert_not_called()
+                prompt.assert_not_called()
+
+    def test_ambiguous_public_ip_asks_for_address_with_enter_instruction(self):
+        with patch.dict(module.os.environ, {}, clear=True), \
+                patch.object(module, 'discover_public_ip', return_value=''), \
+                patch.object(module, 'prompt', return_value='1.1.1.1') as prompt, \
+                patch('builtins.print') as output:
+            self.assertEqual(module.choose_public_ip(), '1.1.1.1')
+        prompt.assert_called_once_with('Enter this server’s public IPv4 address, then press Enter')
+        output.assert_called_once_with('Using public IPv4 address: 1.1.1.1', flush=True)
+
     def test_ip_host_collision_and_custom_regex_are_not_overwritten(self):
         self.assertTrue(module.host_collision('server_name 8.8.8.8;', '8.8.8.8'))
         self.assertFalse(module.host_collision('server_name example.com *.example.com;', '8.8.8.8'))
@@ -217,6 +250,42 @@ print('TERMINAL_FLOW_OK', flush=True)
                     module.select_conf('include /etc/nginx/sites-enabled/*;')
             with self.assertRaises(ValueError):
                 module.select_conf('include /etc/nginx/conf.d/*.conf; listen 80;')
+
+    def test_cloudpanel_conf_glob_ignores_backups_and_preserves_existing_site_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            site = Path(directory) / 'zz-metricowl-panel.conf'
+            (site.parent / 'default.conf').write_text('server { listen 80 default_server; }')
+            (site.parent / 'zzz-backup.conf.old').write_text('not an included configuration')
+            with patch.object(module, 'SITES_CONF', site):
+                for quote in ['', '"', "'"]:
+                    config = f'http {{\n    include {quote}/etc/nginx/sites-enabled/*.conf{quote}; # CloudPanel sites\n}}'
+                    with self.subTest(quote=quote):
+                        self.assertEqual(module.select_conf(config), site)
+                with self.assertRaisesRegex(ValueError, 'site ordering'):
+                    module.select_conf('include /etc/nginx/sites-enabled/*;')
+                later = site.parent / 'zzz-live.conf'
+                later.write_text('server { listen 80; }')
+                with self.assertRaisesRegex(ValueError, 'site ordering'):
+                    module.select_conf('include /etc/nginx/sites-enabled/*.conf;')
+                self.assertEqual(later.read_text(), 'server { listen 80; }')
+
+    def test_sites_glob_rejects_comment_only_mismatched_quotes_and_other_layouts(self):
+        for config in [
+            '# include /etc/nginx/sites-enabled/*.conf;',
+            'include "/etc/nginx/sites-enabled/*.conf\';',
+            'include /etc/nginx/sites-enabled/*.conf.backup;',
+            'include /custom/sites-enabled/*.conf;',
+            'include /etc/nginx/sites-enabled/nested/*.conf;',
+        ]:
+            with self.subTest(config=config), self.assertRaisesRegex(ValueError, 'custom include'):
+                module.select_conf(config)
+
+    def test_both_sites_globs_check_every_included_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            site = Path(directory) / 'zz-metricowl-panel.conf'
+            (site.parent / 'zzz-later').write_text('server { listen 80; }')
+            with patch.object(module, 'SITES_CONF', site), self.assertRaisesRegex(ValueError, 'site ordering'):
+                module.select_conf('include /etc/nginx/sites-enabled/*.conf;\ninclude /etc/nginx/sites-enabled/*;')
 
     def test_exact_ip_routes_keep_normal_web_ports_and_root_page_separate(self):
         config = module.tls_config('8.8.8.8', 9443)
@@ -324,6 +393,22 @@ print('TERMINAL_FLOW_OK', flush=True)
                     module.configure()
             prerequisites.assert_not_called()
             self.assertFalse(any('systemctl' in call.args[0] for call in runner.call_args_list))
+
+    def test_automatic_ip_does_not_automatically_accept_certificate_terms(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = {name: Path(directory) / name for name in ['MARKER', 'CONF', 'SITES_CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL', 'RENEW_SERVICE', 'RENEW_TIMER']}
+            with patch.multiple(module, **paths), patch.object(module.os, 'geteuid', return_value=0), \
+                    patch.dict(module.os.environ, {}, clear=True), \
+                    patch.object(module, 'discover_public_ip', return_value='8.8.8.8'), \
+                    patch.object(module.shutil, 'which', return_value=None), \
+                    patch.object(module, 'run', return_value=subprocess.CompletedProcess([], 0, '', '')), \
+                    patch.object(module, 'prompt', return_value='no') as prompt, \
+                    patch.object(module, 'ensure_prerequisites') as prerequisites:
+                with self.assertRaisesRegex(ValueError, 'terms were not accepted'):
+                    module.configure()
+            prompt.assert_called_once_with('Accept the certificate authority terms? (yes/no)', 'no')
+            prerequisites.assert_not_called()
+            self.assertFalse(any(path.exists() for path in paths.values()))
 
     def test_ip_port_summary_prints_direct_url(self):
         with tempfile.TemporaryDirectory() as directory:
