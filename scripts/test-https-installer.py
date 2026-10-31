@@ -390,8 +390,12 @@ print('TERMINAL_FLOW_OK', flush=True)
         self.assertNotIn(['ufw', '--force', 'delete', 'allow', '8443/tcp'], calls)
 
     def test_existing_operator_configuration_is_preserved(self):
-        with patch.object(module.os, 'geteuid', return_value=0), patch.object(module, 'existing_origin', return_value='https://monitor.example.com'), patch.object(module, 'verify_panel') as verifier, patch.object(module, 'run') as runner, patch.object(module, 'prompt') as prompt, patch.object(module, 'choose_https_access') as choose:
-            module.configure()
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(module, 'MARKER', Path(directory) / 'panel-access.json'), \
+                    patch.object(module.os, 'geteuid', return_value=0), patch.object(module, 'existing_origin', return_value='https://monitor.example.com'), \
+                    patch.object(module, 'verify_panel') as verifier, patch.object(module, 'run') as runner, \
+                    patch.object(module, 'prompt') as prompt, patch.object(module, 'choose_https_access') as choose:
+                module.configure()
         verifier.assert_called_once_with('monitor.example.com')
         runner.assert_not_called()
         prompt.assert_not_called()
