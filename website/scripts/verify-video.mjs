@@ -6,7 +6,7 @@ const base=process.env.WEBSITE_URL||'http://127.0.0.1:4886';
 const output='artifacts/validation/website';
 await mkdir(output,{recursive:true});
 await mkdir('artifacts/screenshots/website',{recursive:true});
-for(const path of ['website/public/assets/demo/metric-owl-overview-v4.mp4','website/public/assets/demo/poster-v2.jpg']){
+for(const path of ['website/public/assets/demo/metric-owl-overview-v5.mp4','website/public/assets/demo/poster-v2.jpg']){
  const info=await stat(path);assert.ok(info.size>0&&info.size<=20*1024*1024,`Missing/oversized video asset: ${path}`);
 }
 const browser=await chromium.launch();
@@ -25,8 +25,8 @@ try{
   assert.notEqual(await video.getAttribute('controls'),null);
   assert.notEqual(await video.getAttribute('playsinline'),null);
   assert.equal(await video.evaluate(element=>element.paused),true);
-  assert.equal(requests.some(url=>url.endsWith('/metric-owl-overview-v4.mp4')),false,'Video downloaded before a user play gesture');
-  assert.equal(await page.locator('#film-caption').innerText(),'Illustrative motion preview · English narration · Music: Tech Live — Kevin MacLeod · CC BY 4.0 / credits.');
+  assert.equal(requests.some(url=>url.endsWith('/metric-owl-overview-v5.mp4')),false,'Video downloaded before a user play gesture');
+  assert.equal(await page.locator('#film-caption').innerText(),'Illustrative motion preview · Conversational English narration · Music: Tech Live — Kevin MacLeod · CC BY 4.0 / credits.');
   await video.scrollIntoViewIfNeeded();
   const bounds=await video.boundingBox();assert.ok(bounds);
   // Click the browser's own play control. No autoplay or scripted play() is used.
