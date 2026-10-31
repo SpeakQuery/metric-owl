@@ -29,12 +29,16 @@ Nothing is installed on your viewing device. Two-factor authentication is option
 
 [Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.5/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
 
-## Watch Metric Owl in 45 seconds
+## Watch Metric Owl in 48 seconds
 
-[![Watch the 45-second Metric Owl overview: live monitoring, optional AI analysis and read-only MCP.](website/public/assets/demo/teaser.gif)](https://metricowl.cloud/assets/demo/metric-owl-overview.mp4)
+[![Watch the 48-second Metric Owl overview: live monitoring, optional AI analysis and read-only MCP.](website/public/assets/demo/teaser-v2.gif)](https://metricowl.cloud/assets/demo/metric-owl-overview-v2.mp4)
 
-A silent, six-scene tour of your AI server analyst. Illustrative signals are labeled as example data.
-[Watch the full video](https://metricowl.cloud/assets/demo/metric-owl-overview.mp4).
+A music-backed motion story: from a live server to clear alerts, reports and AI context.
+Illustrative signals are labeled as example data.
+[Watch the full video](https://metricowl.cloud/assets/demo/metric-owl-overview-v2.mp4).
+
+Music: [“Tech Live” by Kevin MacLeod](https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1700030),
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Edited excerpt with volume adjustment and fades.
 
 ## A watchful companion for your server
 

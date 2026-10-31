@@ -1,0 +1,6 @@
+"Tech Live" by Kevin MacLeod (incompetech.com)
+Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
+https://creativecommons.org/licenses/by/4.0/
+Source: https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1700030
+Changes: shortened excerpt, volume adjustment and fades for the Metric Owl video.
+The music retains its Creative Commons license; the project code license does not replace it.

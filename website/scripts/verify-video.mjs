@@ -6,7 +6,7 @@ const base=process.env.WEBSITE_URL||'http://127.0.0.1:4886';
 const output='artifacts/validation/website';
 await mkdir(output,{recursive:true});
 await mkdir('artifacts/screenshots/website',{recursive:true});
-for(const path of ['website/public/assets/demo/metric-owl-overview.mp4','website/public/assets/demo/poster.jpg']){
+for(const path of ['website/public/assets/demo/metric-owl-overview-v2.mp4','website/public/assets/demo/poster-v2.jpg']){
  const info=await stat(path);assert.ok(info.size>0&&info.size<=20*1024*1024,`Missing/oversized video asset: ${path}`);
 }
 const browser=await chromium.launch();
@@ -25,15 +25,15 @@ try{
   assert.notEqual(await video.getAttribute('controls'),null);
   assert.notEqual(await video.getAttribute('playsinline'),null);
   assert.equal(await video.evaluate(element=>element.paused),true);
-  assert.equal(requests.some(url=>url.endsWith('/metric-owl-overview.mp4')),false,'Video downloaded before a user play gesture');
-  assert.equal(await page.locator('#film-caption').innerText(),'Illustrative motion preview · No audio · No live server access.');
+  assert.equal(requests.some(url=>url.endsWith('/metric-owl-overview-v2.mp4')),false,'Video downloaded before a user play gesture');
+  assert.equal(await page.locator('#film-caption').innerText(),'Illustrative motion preview · Music: Tech Live — Kevin MacLeod · CC BY 4.0 / credits.');
   await video.scrollIntoViewIfNeeded();
   const bounds=await video.boundingBox();assert.ok(bounds);
   // Click the browser's own play control. No autoplay or scripted play() is used.
   await video.click({position:{x:24,y:bounds.height-49}});
   await page.waitForFunction(()=>{const video=document.querySelector('#film video');return video&&!video.paused&&video.currentTime>1&&video.readyState>=2},{},{timeout:15000});
   const metadata=await video.evaluate(element=>({duration:element.duration,width:element.videoWidth,height:element.videoHeight,currentTime:element.currentTime,paused:element.paused,error:element.error?.code??null}));
-  assert.equal(Number(metadata.duration.toFixed(3)),45);
+  assert.equal(Number(metadata.duration.toFixed(3)),48);
   assert.equal(metadata.width,1920);assert.equal(metadata.height,1080);assert.equal(metadata.error,null);
   const before=metadata.currentTime;
   await page.waitForFunction(previous=>document.querySelector('#film video').currentTime>previous+.6,before);
