@@ -113,6 +113,7 @@ class InstallerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             paths = {name: Path(directory) / name for name in ['MARKER', 'CONF', 'PROXY', 'TOKEN', 'DROPIN', 'RENEWAL']}
             with patch.multiple(module, **paths), patch.object(module, 'existing_origin', return_value=None), \
+                    patch.object(module, 'Path', side_effect=lambda value: Path(directory) / 'certificates' if value == '/etc/letsencrypt/live' else Path(value)), \
                     patch.object(module.os, 'geteuid', return_value=0), \
                     patch.dict(module.os.environ, {'GUARD_HTTPS_DOMAIN': 'monitor.example.com'}), \
                     patch.object(module.socket, 'getaddrinfo', return_value=[(0, 0, 0, '', ('8.8.8.8', 443))]), \
@@ -198,6 +199,7 @@ class InstallerTests(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 0, '', '')
 
             with patch.multiple(module, **owned), patch.object(module, 'existing_origin', return_value=None), \
+                    patch.object(module, 'Path', side_effect=lambda value: root / 'certificates' if value == '/etc/letsencrypt/live' else Path(value)), \
                     patch.object(module.os, 'geteuid', return_value=0), \
                     patch.dict(module.os.environ, {'GUARD_HTTPS_DOMAIN': 'monitor.example.com', 'GUARD_HTTPS_EMAIL': '', 'GUARD_HTTPS_AGREE_TOS': '1'}), \
                     patch.object(module.socket, 'getaddrinfo', return_value=[(0, 0, 0, '', ('8.8.8.8', 443))]), \
