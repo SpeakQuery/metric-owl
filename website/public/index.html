@@ -34,24 +34,13 @@
   </div>
 </header>
 <main id="main">
-  <section class="hero wrap">
-    <div class="hero-copy">
-      <div class="eyebrow"><span class="status-dot"></span> A WATCHFUL COMPANION FOR YOUR SERVER</div>
-      <h1>Less watching.<br><span>More knowing.</span></h1>
-      <p class="hero-lead">You built something worth keeping online.<br class="desktop-break"> Give it a little peace of mind.</p>
-      <p class="hero-description">Live performance, meaningful alerts, and AI insight when you need it. All in a calm, clear view of your own server.</p>
-      <div class="hero-actions"><a class="button primary" href="#product">Explore the app <svg><use href="#arrow"/></svg></a><a class="text-link" href="#how-it-works">See how it works <span aria-hidden="true">↘</span></a></div>
-      <div class="hero-proof"><span><svg><use href="#check"/></svg> Self-hosted</span><span><svg><use href="#check"/></svg> Read-only monitoring</span><span class="warm"><svg><use href="#spark"/></svg> Optional AI</span></div>
-      <p class="release-note"><span>EARLY PREVIEW</span> Free preview for Ubuntu / Debian x86-64. <a href="/docs/quick-start.html">Install in one command →</a></p>
-    </div>
-    <div class="hero-visual" aria-label="Metric Owl product preview with illustrative data">
-      <div class="orbit-field" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div></div>
-      <div class="visual-topline"><span><span class="status-dot"></span> YOUR SERVER, IN PERSPECTIVE</span><span>01 / OVERVIEW</span></div>
-      <div class="hero-window"><div class="window-top"><span class="window-dots"><i></i><i></i><i></i></span><span>Metric Owl · Control Center</span><svg><use href="#lock"/></svg></div><img src="/assets/dashboard.jpg" width="1440" height="1120" fetchpriority="high" alt="Metric Owl dashboard showing CPU, memory, disk and network cards with a performance chart. Example server data."></div>
-      <div class="insight-float"><span class="float-icon"><svg><use href="#shield"/></svg></span><div><strong>A little less guesswork.</strong><span>See the signals. Understand the story.</span></div><span class="float-dot"></span></div>
-      <span class="visual-caption">Actual app interface · illustrative data</span>
-    </div>
+  <section class="hero hero-film-intro wrap">
+    <div class="hero-copy"><h1>Less watching. <span>More knowing.</span></h1><p class="hero-description">Free, self-hosted server monitoring. Live performance, clear alerts, and optional AI insight.</p></div>
   </section>
+    <section class="product-film wrap" id="film" aria-labelledby="film-title">
+      <div class="product-film-copy"><span class="eyebrow">THE PICTURE IN MOTION</span><h3 id="film-title">Watch Metric Owl in 48 seconds.</h3><span class="product-film-meta">ENGLISH OVERVIEW <span aria-hidden="true">·</span> 00:48</span></div>
+      <figure class="product-film-player"><video controls playsinline preload="none" poster="/assets/demo/poster-v2.jpg" src="/assets/demo/metric-owl-overview-v5.mp4" width="1920" height="1080" aria-label="Metric Owl 48-second product overview" aria-describedby="film-caption">Your browser does not support this video. <a href="/assets/demo/metric-owl-overview-v5.mp4">Open the overview video</a>.</video><figcaption id="film-caption">Illustrative motion preview · Conversational English narration · Music: Tech Live — Kevin MacLeod · <a href="/assets/demo/credits.txt">CC BY 4.0 / credits</a>.</figcaption></figure>
+    </section>
   <div class="platform-strip"><div class="wrap"><span>BUILT FOR YOUR OWN MACHINE</span><div><svg><use href="#server"/></svg> Ubuntu</div><div><span class="platform-symbol">⌘</span> macOS</div><div class="platform-planned">Debian <small>userspace checks passed</small></div><span class="strip-end">Powered by Rust <span aria-hidden="true">·</span> Stored in SQLite</span></div></div>
 
   <section class="intro-section wrap section-space" id="features">
@@ -68,10 +57,7 @@
     <div class="tour-toolbar"><div class="tour-tabs" role="tablist" aria-label="Application screenshots"><button id="tab-dashboard" role="tab" aria-selected="true" aria-controls="tour-panel" data-shot="dashboard">Overview</button><button id="tab-rules" role="tab" aria-selected="false" aria-controls="tour-panel" tabindex="-1" data-shot="rules">Alert rules</button><button id="tab-mcp" role="tab" aria-selected="false" aria-controls="tour-panel" tabindex="-1" data-shot="mcp">MCP connections</button><button id="tab-light" role="tab" aria-selected="false" aria-controls="tour-panel" tabindex="-1" data-shot="light">Light theme</button></div><span class="sample-label">PREVIEW · EXAMPLE DATA</span></div>
     <div id="tour-panel" role="tabpanel" aria-labelledby="tab-dashboard" tabindex="0"><button class="screenshot-button" aria-label="Enlarge application screenshot"><img id="tour-image" src="/assets/dashboard.jpg" loading="lazy" width="1440" height="1120" alt="Overview of an example Ubuntu server, including CPU, RAM, disk, network and performance history."><span class="enlarge-label">View full screen <span aria-hidden="true">↗</span></span></button></div>
     <div class="tour-caption"><span id="tour-description">A clear overview of live performance, processes and events.</span><span>Actual interface. Illustrative data. No access to a live server.</span></div>
-    <section class="product-film" id="film" aria-labelledby="film-title">
-      <div class="product-film-copy"><span class="eyebrow">THE PICTURE IN MOTION</span><h3 id="film-title">Watch Metric Owl<br> in 48 seconds.</h3><p>Live signals. Clear alerts. Optional AI insight. A quick look at how it all fits together.</p><span class="product-film-meta">ENGLISH OVERVIEW <span aria-hidden="true">·</span> 00:48</span></div>
-      <figure class="product-film-player"><video controls playsinline preload="none" poster="/assets/demo/poster-v2.jpg" src="/assets/demo/metric-owl-overview-v5.mp4" width="1920" height="1080" aria-label="Metric Owl 48-second product overview" aria-describedby="film-caption">Your browser does not support this video. <a href="/assets/demo/metric-owl-overview-v5.mp4">Open the overview video</a>.</video><figcaption id="film-caption">Illustrative motion preview · Conversational English narration · Music: Tech Live — Kevin MacLeod · <a href="/assets/demo/credits.txt">CC BY 4.0 / credits</a>.</figcaption></figure>
-    </section>
+
   </div></section>
 
   <section class="intelligence-section wrap section-space" id="intelligence"><div class="intelligence-copy"><span class="eyebrow warm"><svg><use href="#spark"/></svg> INTELLIGENCE WITH BOUNDARIES</span><h2>Rules do the watching.<br><span class="warm">AI helps explain.</span></h2><p>Every CPU spike doesn’t need a conversation with a model. Routine monitoring and alerts run locally. Add your own AI provider key when an incident needs a deeper look.</p><div class="intelligence-points"><div><span>01</span><p><strong>Understand the evidence.</strong><br>Request an analysis of selected, size-limited incident data, with sensitive details redacted.</p></div><div><span>02</span><p><strong>Bring your own AI agent.</strong><br>Connect an MCP-compatible client over local stdio or SSH. Ask about collected history, metrics and incidents.</p></div><div><span>03</span><p><strong>Stay in control.</strong><br>Scoped, revocable access. No MCP tools for running commands, editing files or changing server settings.</p></div></div><a class="text-link" href="/docs/advanced.html#mcp">Explore MCP setup <svg><use href="#arrow"/></svg></a></div>

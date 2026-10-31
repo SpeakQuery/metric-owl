@@ -1,8 +1,13 @@
-![Metric Owl — Your AI Server Analyst. Self-hosted monitoring, read-only MCP and your own AI provider.](website/public/assets/readme-ai-hero.svg)
-
 # Metric Owl · Your AI Server Analyst
 
 **Turn server signals into a conversation you can understand.**
+
+<a href="https://metricowl.cloud/assets/demo/metric-owl-overview-v5.mp4"><img src="website/public/assets/demo/poster-v2.jpg" width="100%" alt="Play the 48-second Metric Owl introduction: free monitoring, clear alerts and optional AI."></a>
+
+**[▶ Watch Metric Owl in 48 seconds — English narration](https://metricowl.cloud/assets/demo/metric-owl-overview-v5.mp4)**
+
+Illustrative example data · Music: [“Tech Live” — Kevin MacLeod](https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1700030), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) · [Credits and edits](website/public/assets/demo/credits.txt).
+
 Watch live performance, catch problems with local rules, and give your AI assistant
 the evidence to explain what changed. Free, open-source server monitoring under
 [Apache License 2.0](LICENSE), optional
@@ -33,17 +38,6 @@ system Python/venv support packages, including dependency updates; usable depend
 are reused. Two-factor authentication is optional.
 
 [Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.9/scripts/bootstrap-linux.sh) · [Installation help](docs/INSTALLATION.md)
-
-## Watch Metric Owl in 48 seconds
-
-[![Watch the 48-second Metric Owl overview: live monitoring, optional AI analysis and read-only MCP.](website/public/assets/demo/teaser-v2.gif)](https://metricowl.cloud/assets/demo/metric-owl-overview-v5.mp4)
-
-A continuous English introduction to free, self-hosted monitoring: clear alerts, local history and optional email, AI and read-only MCP connections.
-Illustrative signals are labeled as example data.
-[Watch the full video](https://metricowl.cloud/assets/demo/metric-owl-overview-v5.mp4).
-
-Music: [“Tech Live” by Kevin MacLeod](https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1700030),
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Edited excerpt with volume adjustment and fades.
 
 ## A watchful companion for your server
 
