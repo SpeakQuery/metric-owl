@@ -2,7 +2,9 @@
 
 **Turn server signals into a conversation you can understand.**
 
-<a href="https://metricowl.cloud/assets/demo/metric-owl-overview-v5.mp4"><img src="website/public/assets/demo/poster-v2.jpg" width="100%" alt="Play the 48-second Metric Owl introduction: free monitoring, clear alerts and optional AI."></a>
+<a href="https://metricowl.cloud/assets/demo/metric-owl-overview-v5.mp4"><img src="website/public/assets/demo/overview-autoplay-v5.gif" width="100%" alt="Animated 48-second Metric Owl preview: free monitoring, clear alerts and optional AI."></a>
+
+Silent preview · click to watch with sound.
 
 **[▶ Watch Metric Owl in 48 seconds — English narration](https://metricowl.cloud/assets/demo/metric-owl-overview-v5.mp4)**
 
