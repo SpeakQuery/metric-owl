@@ -115,7 +115,7 @@ Gmail/Outlook rendering is implied by synthetic browser previews.
 
 The release validation workflow checks the published installer on a disposable
 Ubuntu 24.04 VM with private SSH/loopback access, password recovery, data-preserving
-reinstall and explicit purge. Its run result is separate from the historical
+reinstall and explicit purge. The [published lifecycle passed](RELEASE_VALIDATION.md); its result is separate from the historical
 public-IP HTTPS certificate test above. Public source, a successful compile and
 installation on one OS do not establish fresh HTTPS installation on every listed
 platform. See the release notes and linked workflow for the actual run status.

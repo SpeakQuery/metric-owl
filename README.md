@@ -72,7 +72,7 @@ tunnel instructions. This skips certificate tools. HTTPS may install Certbot and
 system Python/venv support packages, including dependency updates; usable dependencies
 are reused. Two-factor authentication is optional.
 
-[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.10/scripts/bootstrap-linux.sh) · [Release assets and checksums](https://github.com/SpeakQuery/metric-owl/releases/tag/v0.1.0-preview.10) · [Installation help](docs/INSTALLATION.md)
+[Inspect the installer](https://github.com/SpeakQuery/metric-owl/blob/v0.1.0-preview.10/scripts/bootstrap-linux.sh) · [Release assets and checksums](https://github.com/SpeakQuery/metric-owl/releases/tag/v0.1.0-preview.10) · [Installation help](docs/INSTALLATION.md) · [Verified preview.10 checks](docs/RELEASE_VALIDATION.md)
 
 ## A watchful companion for your server
 
