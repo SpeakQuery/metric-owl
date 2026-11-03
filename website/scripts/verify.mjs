@@ -68,7 +68,7 @@ try {
     }
     const response=await page.request.get(url.href);assert.equal(response.status(),200,`Broken link ${url}`);
   }
-  for(const path of ['/docs/quick-start.html','/docs/advanced.html','/docs/releases.html','/privacy.html']){
+  for(const path of ['/docs/advanced.html','/docs/releases.html','/privacy.html']){
     for(const width of [390,1440]){
       await page.setViewportSize({width,height:900});await page.goto(base+path,{waitUntil:'networkidle'});
       assert.equal(await page.locator('h1').count(),1);
@@ -76,21 +76,20 @@ try {
     }
     result.pages.push({path,ok:true});
   }
-  await page.goto(base+'/docs/quick-start.html',{waitUntil:'networkidle'});
-  assert.equal(await page.locator('.quick-steps > li').count(),3);
-  assert.match(await page.locator('.quick-steps').textContent(), /at least 8 characters; no required character types/);
-  assert.match(await page.locator('.quick-steps').textContent(), /installer asks again/);
-  assert.match(await page.locator('.quick-steps').textContent(), /HTTPS — open from any device \(recommended\)/);
-  assert.match(await page.locator('.quick-steps').textContent(), /Private — connect through SSH/);
-  assert.equal(await page.locator('input,select').count(),0);
-  await page.context().grantPermissions(['clipboard-read','clipboard-write']);
-  await page.getByRole('button',{name:'Copy command',exact:true}).click();
-  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.10/scripts/bootstrap-linux.sh | sudo bash');
-  await page.screenshot({path:'artifacts/screenshots/website/quick-start-simple.png',fullPage:true,animations:'disabled'});
+  const project='https://github.com/SpeakQuery/metric-owl';
   await page.goto(base+'/',{waitUntil:'networkidle'});
-  await page.getByRole('button',{name:'Copy install command',exact:true}).click();
-  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'curl -fsSL https://raw.githubusercontent.com/SpeakQuery/metric-owl/v0.1.0-preview.10/scripts/bootstrap-linux.sh | sudo bash');
-  result.checks.push('homepage one-line installer copy');
+  for(const selector of ['.nav-cta','#install .button','.edition-card .button','.site-footer nav a:first-child']) {
+    assert.equal(await page.locator(selector).getAttribute('href'),project);
+  }
+  assert.equal(await page.locator('a[href="/docs/quick-start.html"]').count(),0);
+  // Prove real navigation without depending on GitHub or fetching external assets.
+  const redirectPage=await browser.newPage();
+  await redirectPage.route(project,route=>route.fulfill({status:200,contentType:'text/html',body:'<h1>GitHub navigation verified</h1>'}));
+  await redirectPage.goto(base+'/docs/quick-start.html');
+  await redirectPage.waitForURL(project);
+  await redirectPage.close();
+  await page.context().grantPermissions(['clipboard-read','clipboard-write']);
+  result.checks.push('installation links open the GitHub project','legacy setup URL redirects to GitHub');
   await page.goto(base+'/docs/advanced.html',{waitUntil:'networkidle'});
   assert.match(await page.locator('#network-access').textContent(), /Public plaintext HTTP/);
   assert.match(await page.locator('#server-ai').textContent(), /20 provider attempts per UTC day/);
@@ -134,7 +133,7 @@ try {
   }
   await page.setViewportSize({width:1440,height:1000});
   await page.locator('.connection-builder').screenshot({path:'artifacts/screenshots/website/connection-builder.png'});
-  result.checks.push('live server address command builder','MCP config only for existing UUID','shell injection inputs rejected','three-step guide with working copy and no connection forms','advanced SSH and MCP guide');
+  result.checks.push('live server address command builder','MCP config only for existing UUID','shell injection inputs rejected','advanced SSH and MCP guide');
   const thirdParty=requests.filter(url=>!url.startsWith(base+'/'));
   assert.deepEqual(thirdParty,[],'Third-party browser requests');
   assert.deepEqual(errors,[],'Browser errors');

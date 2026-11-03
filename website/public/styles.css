@@ -25,7 +25,7 @@
 /* Provider names stay secondary to the connect-and-chat flow. */
 .provider-list{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 26px}.provider-list span{font:10px PlexMono,monospace;color:#b1c5bc;border:1px solid #3c4c46;border-radius:4px;padding:6px 9px;background:#192424}.doc-main .access-matrix{width:100%;border-collapse:collapse;margin:24px 0;font-size:13px}.access-matrix th,.access-matrix td{padding:13px 12px;border:1px solid var(--line);text-align:left;vertical-align:top}.access-matrix th{color:var(--mint);font-weight:500}.access-table{overflow-x:auto}.access-matrix code{white-space:normal;overflow-wrap:anywhere}.doc-main .maintenance-commands pre{white-space:pre-wrap;overflow-wrap:anywhere}
 
-.home-install{margin-top:36px}.home-install>p{font-size:13px;margin:0;color:var(--muted)}
+.home-install{margin-top:36px}.home-install>p{font-size:13px;margin:0 0 18px;color:var(--muted)}
 
 .guide-sections{display:flex;flex-wrap:wrap;gap:10px 20px;margin:26px 0 34px;padding-block:18px;border-block:1px solid var(--line);font-size:13px;color:var(--mint)}
 
